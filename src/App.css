@@ -1,0 +1,1009 @@
+import { useState, useEffect, useCallback, useRef } from "react";
+import Papa from "papaparse";
+import * as XLSX from "xlsx";
+
+// ─── LocalStorage Helper ───
+const DB = {
+  get(key) {
+    try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : null; }
+    catch { return null; }
+  },
+  set(key, val) {
+    try { localStorage.setItem(key, JSON.stringify(val)); } catch(e) { console.error("Storage error:", e); }
+  },
+  delete(key) {
+    try { localStorage.removeItem(key); } catch { }
+  },
+};
+
+// ─── Seed Data ───
+const SEED_PLANTS = [
+  { id: "p1", name: "Japanese Maple", category: "Trees", size: '5 gal', price: 45.00, quantity: 24, packSize: 1, comments: "Fall color specimen" },
+  { id: "p2", name: "Lavender 'Hidcote'", category: "Perennials", size: '1 gal', price: 8.50, quantity: 120, packSize: 18, comments: "Fragrant, drought tolerant" },
+  { id: "p3", name: "Knockout Rose", category: "Shrubs", size: '3 gal', price: 22.00, quantity: 56, packSize: 8, comments: "Disease resistant, reblooming" },
+  { id: "p4", name: "Blue Fescue", category: "Grasses", size: '1 gal', price: 6.00, quantity: 200, packSize: 32, comments: "Silver-blue foliage" },
+  { id: "p5", name: "Dwarf Alberta Spruce", category: "Trees", size: '5 gal', price: 38.00, quantity: 18, packSize: 1, comments: "Slow growing, conical form" },
+  { id: "p6", name: "Hosta 'Sum & Substance'", category: "Perennials", size: '1 gal', price: 12.00, quantity: 80, packSize: 12, comments: "Giant chartreuse leaves" },
+  { id: "p7", name: "Crepe Myrtle 'Natchez'", category: "Trees", size: '15 gal', price: 89.00, quantity: 8, packSize: 1, comments: "White blooms, exfoliating bark" },
+  { id: "p8", name: "Boxwood 'Green Velvet'", category: "Shrubs", size: '3 gal', price: 18.50, quantity: 0, packSize: 10, comments: "Dense, formal hedging" },
+  { id: "p9", name: "Daylily 'Stella de Oro'", category: "Perennials", size: '1 gal', price: 7.00, quantity: 150, packSize: 18, comments: "Reblooming yellow" },
+  { id: "p10", name: "Maiden Grass", category: "Grasses", size: '3 gal', price: 16.00, quantity: 45, packSize: 6, comments: "Graceful plumes in fall" },
+];
+
+const SEED_ORDERS = [
+  { id: "ord-001", customerName: "Valley Landscaping", customerEmail: "info@valleylandscaping.com", customerPhone: "(209) 555-0142", notes: "Will pick up Friday AM", status: "pending", items: [{ plantId: "p1", plantName: "Japanese Maple", quantity: 3, unitPrice: 45.00 }, { plantId: "p3", plantName: "Knockout Rose", quantity: 12, unitPrice: 22.00 }], createdAt: new Date(Date.now() - 86400000).toISOString() },
+  { id: "ord-002", customerName: "Sara Mitchell", customerEmail: "sara.m@email.com", customerPhone: "(209) 555-0298", notes: "", status: "confirmed", items: [{ plantId: "p6", plantName: "Hosta 'Sum & Substance'", quantity: 6, unitPrice: 12.00 }], createdAt: new Date(Date.now() - 172800000).toISOString() },
+];
+
+// ─── Icons (inline SVG) ───
+const Icon = ({ name, size = 20 }) => {
+  const s = { width: size, height: size, fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round", strokeLinejoin: "round" };
+  const icons = {
+    search: <svg {...s} viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>,
+    cart: <svg {...s} viewBox="0 0 24 24"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a1 1 0 001 .61h9.72a1 1 0 001-.76L23 6H6"/></svg>,
+    plus: <svg {...s} viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>,
+    minus: <svg {...s} viewBox="0 0 24 24"><path d="M5 12h14"/></svg>,
+    x: <svg {...s} viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>,
+    upload: <svg {...s} viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>,
+    download: <svg {...s} viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>,
+    leaf: <svg {...s} viewBox="0 0 24 24"><path d="M17 8C8 10 5.9 16.17 3.82 21.34M17 8A5 5 0 006 13M17 8l4-4"/></svg>,
+    box: <svg {...s} viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><path d="M3.27 6.96L12 12.01l8.73-5.05M12 22.08V12"/></svg>,
+    clipboard: <svg {...s} viewBox="0 0 24 24"><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/></svg>,
+    check: <svg {...s} viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>,
+    arrowLeft: <svg {...s} viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>,
+    mail: <svg {...s} viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M22 4l-10 8L2 4"/></svg>,
+    settings: <svg {...s} viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>,
+    trash: <svg {...s} viewBox="0 0 24 24"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>,
+    edit: <svg {...s} viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>,
+    tag: <svg {...s} viewBox="0 0 24 24"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><circle cx="7" cy="7" r="1" fill="currentColor"/></svg>,
+  };
+  return icons[name] || null;
+};
+
+// ─── Utility ───
+const fmt = (n) => "$" + Number(n).toFixed(2);
+const genId = () => "id-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+const CATEGORIES = ["All", "Trees", "Shrubs", "Perennials", "Grasses", "Annuals", "Vines", "Groundcovers", "Succulents", "Other"];
+
+// ─── Main App ───
+export default function App() {
+  const [view, setView] = useState("shop");
+  const [plants, setPlants] = useState([]);
+  const [orders, setOrders] = useState([]);
+  const [cart, setCart] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+  const [toast, setToast] = useState(null);
+
+  useEffect(() => {
+    let p = DB.get("plants");
+    let o = DB.get("orders");
+    if (!p) { p = SEED_PLANTS; DB.set("plants", p); }
+    if (!o) { o = SEED_ORDERS; DB.set("orders", o); }
+    setPlants(p);
+    setOrders(o);
+    setLoaded(true);
+  }, []);
+
+  const savePlants = useCallback((p) => { setPlants(p); DB.set("plants", p); }, []);
+  const saveOrders = useCallback((o) => { setOrders(o); DB.set("orders", o); }, []);
+
+  const showToast = (msg, type = "success") => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const addToCart = (plant, qty = 1) => {
+    setCart(prev => {
+      const existing = prev.find(c => c.plantId === plant.id);
+      if (existing) {
+        const newQty = Math.min(existing.quantity + qty, plant.quantity);
+        return prev.map(c => c.plantId === plant.id ? { ...c, quantity: newQty } : c);
+      }
+      return [...prev, { plantId: plant.id, plantName: plant.name, quantity: Math.min(qty, plant.quantity), unitPrice: plant.price }];
+    });
+    showToast(`${plant.name} added to cart`);
+  };
+
+  const updateCartQty = (plantId, qty) => {
+    if (qty <= 0) { setCart(prev => prev.filter(c => c.plantId !== plantId)); return; }
+    const plant = plants.find(p => p.id === plantId);
+    const maxQ = plant ? plant.quantity : qty;
+    setCart(prev => prev.map(c => c.plantId === plantId ? { ...c, quantity: Math.min(qty, maxQ) } : c));
+  };
+
+  const removeFromCart = (plantId) => setCart(prev => prev.filter(c => c.plantId !== plantId));
+
+  const submitOrder = (customerInfo) => {
+    const updatedPlants = plants.map(p => {
+      const cartItem = cart.find(c => c.plantId === p.id);
+      if (cartItem) return { ...p, quantity: Math.max(0, p.quantity - cartItem.quantity) };
+      return p;
+    });
+    const newOrder = {
+      id: "ord-" + genId(),
+      ...customerInfo,
+      status: "pending",
+      items: cart.map(c => ({ ...c })),
+      createdAt: new Date().toISOString(),
+    };
+    const updatedOrders = [newOrder, ...orders];
+    savePlants(updatedPlants);
+    saveOrders(updatedOrders);
+    setCart([]);
+    showToast("Order submitted! A confirmation email would be sent in production.");
+    return newOrder;
+  };
+
+  if (!loaded) return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", fontFamily: "'DM Sans', sans-serif", background: "#f7f5f0" }}>
+      <div style={{ textAlign: "center" }}>
+        <div style={{ fontSize: 40, marginBottom: 12 }}><Icon name="leaf" size={40} /></div>
+        <div style={{ color: "#6b7c5e", fontSize: 14, letterSpacing: 2 }}>LOADING INVENTORY...</div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{ fontFamily: "'DM Sans', sans-serif", minHeight: "100vh", background: "#f7f5f0", color: "#2c2c2c", position: "relative" }}>
+      <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Playfair+Display:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+      {toast && (
+        <div style={{
+          position: "fixed", top: 20, right: 20, zIndex: 9999,
+          background: toast.type === "error" ? "#c0392b" : "#4a6741",
+          color: "#fff", padding: "12px 20px", borderRadius: 8,
+          fontSize: 14, fontWeight: 500, boxShadow: "0 4px 20px rgba(0,0,0,.15)",
+          animation: "slideIn .3s ease",
+        }}>
+          {toast.msg}
+        </div>
+      )}
+
+      <style>{`
+        @keyframes slideIn { from { transform: translateX(100px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        @keyframes fadeUp { from { transform: translateY(10px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        input, select, textarea, button { font-family: inherit; }
+        button { cursor: pointer; border: none; background: none; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-thumb { background: #c4bfb4; border-radius: 3px; }
+      `}</style>
+
+      {view === "shop" ? (
+        <ShopView plants={plants} cart={cart} addToCart={addToCart} updateCartQty={updateCartQty}
+          removeFromCart={removeFromCart} submitOrder={submitOrder} showToast={showToast}
+          onGoAdmin={() => setView("admin")} />
+      ) : (
+        <AdminView plants={plants} orders={orders} savePlants={savePlants} saveOrders={saveOrders}
+          showToast={showToast} onGoShop={() => setView("shop")} />
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════
+// ─── SHOP VIEW ────────────────────────────
+// ═══════════════════════════════════════════
+function ShopView({ plants, cart, addToCart, updateCartQty, removeFromCart, submitOrder, showToast, onGoAdmin }) {
+  const [search, setSearch] = useState("");
+  const [category, setCategory] = useState("All");
+  const [cartOpen, setCartOpen] = useState(false);
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [orderConfirm, setOrderConfirm] = useState(null);
+
+  const filtered = plants.filter(p => {
+    if (category !== "All" && p.category !== category) return false;
+    if (search && !p.name.toLowerCase().includes(search.toLowerCase()) && !p.comments?.toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  });
+
+  const cartCount = cart.reduce((s, c) => s + c.quantity, 0);
+  const cartTotal = cart.reduce((s, c) => s + c.quantity * c.unitPrice, 0);
+
+  const handleCheckout = (info) => {
+    const order = submitOrder(info);
+    setCheckoutOpen(false);
+    setCartOpen(false);
+    setOrderConfirm(order);
+  };
+
+  return (
+    <div>
+      <header style={{
+        background: "linear-gradient(135deg, #4a6741 0%, #5c7a52 50%, #6b8c5e 100%)",
+        color: "#fff", padding: "0", position: "sticky", top: 0, zIndex: 100,
+        boxShadow: "0 2px 20px rgba(74,103,65,.3)",
+      }}>
+        <div style={{ maxWidth: 1200, margin: "0 auto", padding: "16px 24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <Icon name="leaf" size={28} />
+            <div>
+              <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 22, fontWeight: 600, lineHeight: 1.1 }}>Plant Inventory</div>
+              <div style={{ fontSize: 11, opacity: .75, letterSpacing: 2, textTransform: "uppercase" }}>Wholesale Nursery</div>
+            </div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+            <button onClick={onGoAdmin} style={{ color: "#fff", opacity: .7, fontSize: 12, letterSpacing: 1, textTransform: "uppercase", padding: "6px 12px", borderRadius: 4, transition: "opacity .2s" }}
+              onMouseOver={e => e.target.style.opacity = 1} onMouseOut={e => e.target.style.opacity = .7}>
+              Admin
+            </button>
+            <button onClick={() => setCartOpen(true)} style={{
+              position: "relative", color: "#fff", background: "rgba(255,255,255,.15)",
+              padding: "8px 16px", borderRadius: 8, display: "flex", alignItems: "center", gap: 8,
+              transition: "background .2s",
+            }} onMouseOver={e => e.currentTarget.style.background = "rgba(255,255,255,.25)"} onMouseOut={e => e.currentTarget.style.background = "rgba(255,255,255,.15)"}>
+              <Icon name="cart" size={20} />
+              <span style={{ fontSize: 14, fontWeight: 600 }}>{fmt(cartTotal)}</span>
+              {cartCount > 0 && (
+                <span style={{
+                  position: "absolute", top: -6, right: -6, background: "#e67e22",
+                  color: "#fff", fontSize: 11, fontWeight: 700, width: 20, height: 20,
+                  borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
+                }}>
+                  {cartCount}
+                </span>
+              )}
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <div style={{ maxWidth: 1200, margin: "0 auto", padding: "20px 24px 0" }}>
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+          <div style={{ flex: 1, minWidth: 220, position: "relative" }}>
+            <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "#999" }}><Icon name="search" size={18} /></span>
+            <input value={search} onChange={e => setSearch(e.target.value)}
+              placeholder="Search plants..."
+              style={{ width: "100%", padding: "10px 12px 10px 40px", border: "1px solid #ddd", borderRadius: 8, fontSize: 14, background: "#fff", outline: "none" }}
+            />
+          </div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {CATEGORIES.filter(c => c === "All" || plants.some(p => p.category === c)).map(cat => (
+              <button key={cat} onClick={() => setCategory(cat)}
+                style={{
+                  padding: "7px 14px", borderRadius: 20, fontSize: 13, fontWeight: 500,
+                  background: category === cat ? "#4a6741" : "#fff",
+                  color: category === cat ? "#fff" : "#666",
+                  border: `1px solid ${category === cat ? "#4a6741" : "#ddd"}`,
+                  transition: "all .2s",
+                }}>
+                {cat}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div style={{ marginTop: 12, fontSize: 13, color: "#999" }}>
+          {filtered.length} plant{filtered.length !== 1 ? "s" : ""} available
+        </div>
+      </div>
+
+      <div style={{
+        maxWidth: 1200, margin: "0 auto", padding: "16px 24px 40px",
+        display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 16,
+      }}>
+        {filtered.map((plant, i) => (
+          <PlantCard key={plant.id} plant={plant} onAdd={addToCart} cartItem={cart.find(c => c.plantId === plant.id)} delay={i * 30} />
+        ))}
+        {filtered.length === 0 && (
+          <div style={{ gridColumn: "1 / -1", textAlign: "center", padding: 60, color: "#999" }}>
+            <Icon name="search" size={40} />
+            <div style={{ marginTop: 12, fontSize: 16 }}>No plants match your search.</div>
+          </div>
+        )}
+      </div>
+
+      {cartOpen && <CartDrawer cart={cart} plants={plants} cartTotal={cartTotal} updateCartQty={updateCartQty}
+        removeFromCart={removeFromCart} onClose={() => setCartOpen(false)}
+        onCheckout={() => { if (cart.length > 0) { setCheckoutOpen(true); } else { showToast("Cart is empty", "error"); } }} />}
+
+      {checkoutOpen && <CheckoutModal cart={cart} cartTotal={cartTotal} onSubmit={handleCheckout}
+        onClose={() => setCheckoutOpen(false)} />}
+
+      {orderConfirm && <OrderConfirmModal order={orderConfirm} onClose={() => setOrderConfirm(null)} />}
+    </div>
+  );
+}
+
+function PlantCard({ plant, onAdd, cartItem, delay }) {
+  const outOfStock = plant.quantity <= 0;
+  const lowStock = plant.quantity > 0 && plant.quantity <= 5;
+  const inCart = cartItem ? cartItem.quantity : 0;
+
+  const hues = [142, 28, 200, 350, 45, 180, 260, 90, 320, 60];
+  const hue = hues[plant.name.length % hues.length];
+
+  return (
+    <div style={{
+      background: "#fff", borderRadius: 12, overflow: "hidden",
+      border: "1px solid #e8e4dc", transition: "transform .2s, box-shadow .2s",
+      opacity: outOfStock ? 0.6 : 1,
+      animation: `fadeUp .4s ease ${delay}ms both`,
+    }}
+      onMouseOver={e => { if (!outOfStock) { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = "0 8px 24px rgba(0,0,0,.08)"; } }}
+      onMouseOut={e => { e.currentTarget.style.transform = ""; e.currentTarget.style.boxShadow = ""; }}
+    >
+      <div style={{
+        height: 6,
+        background: `linear-gradient(90deg, hsl(${hue}, 40%, 55%), hsl(${(hue + 30) % 360}, 35%, 65%))`,
+      }} />
+
+      <div style={{ padding: 18 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+          <div>
+            <span style={{
+              fontSize: 10, fontWeight: 600, letterSpacing: 1.5, textTransform: "uppercase",
+              color: `hsl(${hue}, 35%, 45%)`, background: `hsl(${hue}, 30%, 94%)`,
+              padding: "2px 8px", borderRadius: 4,
+            }}>
+              {plant.category}
+            </span>
+          </div>
+          <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 22, fontWeight: 600, color: "#4a6741" }}>
+            {fmt(plant.price)}
+          </div>
+        </div>
+
+        <h3 style={{ fontFamily: "'Playfair Display', serif", fontSize: 17, fontWeight: 600, margin: "8px 0 4px", lineHeight: 1.3 }}>
+          {plant.name}
+        </h3>
+
+        {plant.comments && (
+          <p style={{ fontSize: 13, color: "#888", marginBottom: 8, lineHeight: 1.4 }}>{plant.comments}</p>
+        )}
+
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", fontSize: 12, color: "#777", marginBottom: 12 }}>
+          {plant.size && <span>Size: <b style={{ color: "#555" }}>{plant.size}</b></span>}
+          {plant.packSize > 1 && <span>Pack: <b style={{ color: "#555" }}>{plant.packSize}</b></span>}
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ fontSize: 13 }}>
+            {outOfStock ? (
+              <span style={{ color: "#c0392b", fontWeight: 600 }}>Out of Stock</span>
+            ) : lowStock ? (
+              <span style={{ color: "#e67e22", fontWeight: 600 }}>Only {plant.quantity} left</span>
+            ) : (
+              <span style={{ color: "#777" }}>{plant.quantity} available</span>
+            )}
+          </div>
+
+          {!outOfStock && (
+            <button onClick={() => onAdd(plant)}
+              style={{
+                background: inCart > 0 ? "#e67e22" : "#4a6741", color: "#fff",
+                padding: "7px 14px", borderRadius: 8, fontSize: 13, fontWeight: 600,
+                display: "flex", alignItems: "center", gap: 6, transition: "background .2s",
+              }}>
+              <Icon name="plus" size={15} />
+              {inCart > 0 ? `In Cart (${inCart})` : "Add"}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CartDrawer({ cart, plants, cartTotal, updateCartQty, removeFromCart, onClose, onCheckout }) {
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 200 }}>
+      <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,.4)" }} onClick={onClose} />
+      <div style={{
+        position: "absolute", right: 0, top: 0, bottom: 0, width: "min(420px, 90vw)",
+        background: "#fff", boxShadow: "-4px 0 30px rgba(0,0,0,.15)",
+        display: "flex", flexDirection: "column", animation: "slideIn .3s ease",
+      }}>
+        <div style={{ padding: "20px 24px", borderBottom: "1px solid #eee", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 22 }}>Your Cart</h2>
+          <button onClick={onClose} style={{ color: "#999" }}><Icon name="x" size={24} /></button>
+        </div>
+
+        <div style={{ flex: 1, overflow: "auto", padding: "16px 24px" }}>
+          {cart.length === 0 ? (
+            <div style={{ textAlign: "center", padding: 40, color: "#999" }}>
+              <Icon name="cart" size={40} />
+              <p style={{ marginTop: 12 }}>Your cart is empty</p>
+            </div>
+          ) : cart.map(item => {
+            const plant = plants.find(p => p.id === item.plantId);
+            const maxQ = plant ? plant.quantity : 99;
+            return (
+              <div key={item.plantId} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 0", borderBottom: "1px solid #f0f0f0" }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 600, fontSize: 14 }}>{item.plantName}</div>
+                  <div style={{ color: "#888", fontSize: 13 }}>{fmt(item.unitPrice)} each</div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <button onClick={() => updateCartQty(item.plantId, item.quantity - 1)}
+                    style={{ width: 28, height: 28, borderRadius: 6, background: "#f0f0f0", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <Icon name="minus" size={14} />
+                  </button>
+                  <span style={{ fontWeight: 600, fontSize: 14, minWidth: 24, textAlign: "center" }}>{item.quantity}</span>
+                  <button onClick={() => updateCartQty(item.plantId, Math.min(item.quantity + 1, maxQ))}
+                    style={{ width: 28, height: 28, borderRadius: 6, background: "#f0f0f0", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <Icon name="plus" size={14} />
+                  </button>
+                  <button onClick={() => removeFromCart(item.plantId)} style={{ color: "#c0392b", marginLeft: 4 }}>
+                    <Icon name="trash" size={16} />
+                  </button>
+                </div>
+                <div style={{ fontWeight: 600, fontSize: 14, minWidth: 60, textAlign: "right" }}>
+                  {fmt(item.quantity * item.unitPrice)}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {cart.length > 0 && (
+          <div style={{ padding: "16px 24px", borderTop: "1px solid #eee" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16, fontSize: 18, fontWeight: 700 }}>
+              <span>Total</span><span style={{ color: "#4a6741" }}>{fmt(cartTotal)}</span>
+            </div>
+            <button onClick={onCheckout}
+              style={{
+                width: "100%", padding: "13px", background: "#4a6741", color: "#fff",
+                borderRadius: 10, fontSize: 15, fontWeight: 600, transition: "background .2s",
+              }}>
+              Proceed to Checkout
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CheckoutModal({ cart, cartTotal, onSubmit, onClose }) {
+  const [form, setForm] = useState({ customerName: "", customerEmail: "", customerPhone: "", notes: "" });
+  const [submitting, setSubmitting] = useState(false);
+
+  const handle = () => {
+    if (!form.customerName || !form.customerEmail || !form.customerPhone) return;
+    setSubmitting(true);
+    onSubmit(form);
+    setSubmitting(false);
+  };
+
+  const inp = { width: "100%", padding: "10px 14px", border: "1px solid #ddd", borderRadius: 8, fontSize: 14, background: "#fafaf8", outline: "none" };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,.5)" }} onClick={onClose} />
+      <div style={{ position: "relative", background: "#fff", borderRadius: 16, maxWidth: 480, width: "100%", maxHeight: "90vh", overflow: "auto", padding: 32, animation: "fadeUp .3s ease" }}>
+        <button onClick={onClose} style={{ position: "absolute", top: 16, right: 16, color: "#999" }}><Icon name="x" size={22} /></button>
+        <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 24, marginBottom: 4 }}>Place Order</h2>
+        <p style={{ color: "#888", fontSize: 13, marginBottom: 20 }}>{cart.length} item{cart.length !== 1 ? "s" : ""} · {fmt(cartTotal)} total</p>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: "#666", marginBottom: 4, display: "block" }}>Name *</label>
+            <input value={form.customerName} onChange={e => setForm({ ...form, customerName: e.target.value })} style={inp} placeholder="Your name or business" />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: "#666", marginBottom: 4, display: "block" }}>Email *</label>
+            <input type="email" value={form.customerEmail} onChange={e => setForm({ ...form, customerEmail: e.target.value })} style={inp} placeholder="email@example.com" />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: "#666", marginBottom: 4, display: "block" }}>Phone *</label>
+            <input value={form.customerPhone} onChange={e => setForm({ ...form, customerPhone: e.target.value })} style={inp} placeholder="(555) 555-0100" />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: "#666", marginBottom: 4, display: "block" }}>Notes (optional)</label>
+            <textarea value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} style={{ ...inp, height: 70, resize: "vertical" }} placeholder="Pickup time, special requests..." />
+          </div>
+
+          <button onClick={handle} disabled={submitting || !form.customerName || !form.customerEmail || !form.customerPhone}
+            style={{
+              width: "100%", padding: 14, marginTop: 4,
+              background: (!form.customerName || !form.customerEmail || !form.customerPhone) ? "#ccc" : "#4a6741",
+              color: "#fff", borderRadius: 10, fontSize: 15, fontWeight: 600,
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+            }}>
+            <Icon name="mail" size={18} />
+            {submitting ? "Submitting..." : "Submit Order"}
+          </button>
+        </div>
+
+        <p style={{ marginTop: 12, fontSize: 11, color: "#aaa", textAlign: "center" }}>
+          Your order will be emailed to the office for confirmation. No payment is collected online.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function OrderConfirmModal({ order, onClose }) {
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,.5)" }} onClick={onClose} />
+      <div style={{ position: "relative", background: "#fff", borderRadius: 16, maxWidth: 440, width: "100%", padding: 32, textAlign: "center", animation: "fadeUp .3s ease" }}>
+        <div style={{ width: 56, height: 56, borderRadius: "50%", background: "#e8f5e3", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px", color: "#4a6741" }}>
+          <Icon name="check" size={28} />
+        </div>
+        <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 24, marginBottom: 8 }}>Order Submitted!</h2>
+        <p style={{ color: "#777", fontSize: 14, marginBottom: 16, lineHeight: 1.5 }}>
+          Order <b>{order.id}</b> has been received. A confirmation email will be sent to <b>{order.customerEmail}</b>.
+        </p>
+        <div style={{ background: "#f7f5f0", borderRadius: 10, padding: 16, textAlign: "left", marginBottom: 20 }}>
+          {order.items.map(item => (
+            <div key={item.plantId} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 14 }}>
+              <span>{item.plantName} × {item.quantity}</span>
+              <span style={{ fontWeight: 600 }}>{fmt(item.quantity * item.unitPrice)}</span>
+            </div>
+          ))}
+          <div style={{ borderTop: "1px solid #ddd", marginTop: 8, paddingTop: 8, display: "flex", justifyContent: "space-between", fontWeight: 700, fontSize: 16 }}>
+            <span>Total</span><span style={{ color: "#4a6741" }}>{fmt(order.items.reduce((s, i) => s + i.quantity * i.unitPrice, 0))}</span>
+          </div>
+        </div>
+        <button onClick={onClose}
+          style={{ background: "#4a6741", color: "#fff", padding: "12px 32px", borderRadius: 10, fontSize: 15, fontWeight: 600 }}>
+          Continue Shopping
+        </button>
+      </div>
+    </div>
+  );
+}
+
+
+// ═══════════════════════════════════════════
+// ─── ADMIN VIEW ───────────────────────────
+// ═══════════════════════════════════════════
+function AdminView({ plants, orders, savePlants, saveOrders, showToast, onGoShop }) {
+  const [tab, setTab] = useState("inventory");
+
+  return (
+    <div>
+      <header style={{
+        background: "#2c2c2c", color: "#fff", position: "sticky", top: 0, zIndex: 100,
+      }}>
+        <div style={{ maxWidth: 1200, margin: "0 auto", padding: "12px 24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <Icon name="settings" size={22} />
+            <span style={{ fontFamily: "'Playfair Display', serif", fontSize: 18, fontWeight: 600 }}>Admin Dashboard</span>
+          </div>
+          <button onClick={onGoShop} style={{ color: "#fff", opacity: .7, fontSize: 12, letterSpacing: 1, textTransform: "uppercase", display: "flex", alignItems: "center", gap: 6 }}>
+            <Icon name="arrowLeft" size={16} /> Back to Shop
+          </button>
+        </div>
+        <div style={{ maxWidth: 1200, margin: "0 auto", padding: "0 24px", display: "flex", gap: 0 }}>
+          {[
+            { key: "inventory", label: "Inventory", icon: "box" },
+            { key: "orders", label: "Orders", icon: "clipboard" },
+            { key: "upload", label: "Upload / Download", icon: "upload" },
+          ].map(t => (
+            <button key={t.key} onClick={() => setTab(t.key)}
+              style={{
+                padding: "10px 20px", fontSize: 13, fontWeight: 600, color: "#fff",
+                opacity: tab === t.key ? 1 : .5, borderBottom: tab === t.key ? "2px solid #fff" : "2px solid transparent",
+                display: "flex", alignItems: "center", gap: 6, transition: "all .2s",
+              }}>
+              <Icon name={t.icon} size={16} /> {t.label}
+              {t.key === "orders" && orders.filter(o => o.status === "pending").length > 0 && (
+                <span style={{ background: "#e67e22", color: "#fff", fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 10, marginLeft: 4 }}>
+                  {orders.filter(o => o.status === "pending").length}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      </header>
+
+      <div style={{ maxWidth: 1200, margin: "0 auto", padding: "24px" }}>
+        {tab === "inventory" && <InventoryTab plants={plants} savePlants={savePlants} showToast={showToast} />}
+        {tab === "orders" && <OrdersTab orders={orders} saveOrders={saveOrders} plants={plants} savePlants={savePlants} showToast={showToast} />}
+        {tab === "upload" && <UploadTab plants={plants} savePlants={savePlants} showToast={showToast} />}
+      </div>
+    </div>
+  );
+}
+
+function InventoryTab({ plants, savePlants, showToast }) {
+  const [search, setSearch] = useState("");
+  const [editing, setEditing] = useState(null);
+  const [editForm, setEditForm] = useState({});
+
+  const filtered = plants.filter(p => p.name.toLowerCase().includes(search.toLowerCase()));
+  const lowStock = plants.filter(p => p.quantity > 0 && p.quantity <= 5);
+  const outOfStock = plants.filter(p => p.quantity <= 0);
+
+  const startEdit = (p) => { setEditing(p.id); setEditForm({ ...p }); };
+  const cancelEdit = () => { setEditing(null); setEditForm({}); };
+  const saveEdit = () => {
+    savePlants(plants.map(p => p.id === editing ? { ...editForm, price: Number(editForm.price), quantity: Number(editForm.quantity), packSize: Number(editForm.packSize) || 1 } : p));
+    setEditing(null);
+    showToast("Plant updated");
+  };
+  const deletePlant = (id) => {
+    savePlants(plants.filter(p => p.id !== id));
+    showToast("Plant removed");
+  };
+
+  const cellStyle = { padding: "10px 12px", fontSize: 13, borderBottom: "1px solid #f0ede6" };
+  const thStyle = { ...cellStyle, fontWeight: 600, color: "#888", fontSize: 11, letterSpacing: 1, textTransform: "uppercase", background: "#faf8f4", position: "sticky", top: 0 };
+  const editInp = { padding: "6px 8px", border: "1px solid #ddd", borderRadius: 6, fontSize: 13, width: "100%", background: "#fff" };
+
+  return (
+    <div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 20 }}>
+        {[
+          { label: "Total Plants", value: plants.length, color: "#4a6741" },
+          { label: "In Stock", value: plants.filter(p => p.quantity > 0).length, color: "#27ae60" },
+          { label: "Low Stock", value: lowStock.length, color: "#e67e22" },
+          { label: "Out of Stock", value: outOfStock.length, color: "#c0392b" },
+        ].map(s => (
+          <div key={s.label} style={{ background: "#fff", padding: 16, borderRadius: 10, border: "1px solid #e8e4dc" }}>
+            <div style={{ fontSize: 12, color: "#888", marginBottom: 4 }}>{s.label}</div>
+            <div style={{ fontSize: 28, fontWeight: 700, color: s.color, fontFamily: "'Playfair Display', serif" }}>{s.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {lowStock.length > 0 && (
+        <div style={{ background: "#fef9e7", border: "1px solid #f4d03f", borderRadius: 10, padding: "12px 16px", marginBottom: 16, fontSize: 13 }}>
+          <b style={{ color: "#e67e22" }}>Low stock alert:</b> {lowStock.map(p => `${p.name} (${p.quantity})`).join(", ")}
+        </div>
+      )}
+
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <div style={{ position: "relative", width: 260 }}>
+          <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "#999" }}><Icon name="search" size={16} /></span>
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search inventory..."
+            style={{ width: "100%", padding: "8px 8px 8px 34px", border: "1px solid #ddd", borderRadius: 8, fontSize: 13, background: "#fff" }} />
+        </div>
+      </div>
+
+      <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e8e4dc", overflow: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 700 }}>
+          <thead>
+            <tr>
+              {["Name", "Category", "Size", "Pack", "Price", "Qty", "Comments", "Actions"].map(h => (
+                <th key={h} style={{ ...thStyle, textAlign: h === "Price" || h === "Qty" || h === "Pack" ? "right" : "left" }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map(plant => editing === plant.id ? (
+              <tr key={plant.id} style={{ background: "#fffff5" }}>
+                <td style={cellStyle}><input value={editForm.name} onChange={e => setEditForm({ ...editForm, name: e.target.value })} style={editInp} /></td>
+                <td style={cellStyle}>
+                  <select value={editForm.category} onChange={e => setEditForm({ ...editForm, category: e.target.value })} style={editInp}>
+                    {CATEGORIES.filter(c => c !== "All").map(c => <option key={c}>{c}</option>)}
+                  </select>
+                </td>
+                <td style={cellStyle}><input value={editForm.size} onChange={e => setEditForm({ ...editForm, size: e.target.value })} style={editInp} /></td>
+                <td style={{ ...cellStyle, textAlign: "right" }}><input type="number" value={editForm.packSize} onChange={e => setEditForm({ ...editForm, packSize: e.target.value })} style={{ ...editInp, width: 60, textAlign: "right" }} /></td>
+                <td style={{ ...cellStyle, textAlign: "right" }}><input type="number" step=".01" value={editForm.price} onChange={e => setEditForm({ ...editForm, price: e.target.value })} style={{ ...editInp, width: 80, textAlign: "right" }} /></td>
+                <td style={{ ...cellStyle, textAlign: "right" }}><input type="number" value={editForm.quantity} onChange={e => setEditForm({ ...editForm, quantity: e.target.value })} style={{ ...editInp, width: 70, textAlign: "right" }} /></td>
+                <td style={cellStyle}><input value={editForm.comments || ""} onChange={e => setEditForm({ ...editForm, comments: e.target.value })} style={editInp} /></td>
+                <td style={cellStyle}>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button onClick={saveEdit} style={{ color: "#27ae60" }}><Icon name="check" size={18} /></button>
+                    <button onClick={cancelEdit} style={{ color: "#999" }}><Icon name="x" size={18} /></button>
+                  </div>
+                </td>
+              </tr>
+            ) : (
+              <tr key={plant.id}>
+                <td style={{ ...cellStyle, fontWeight: 600 }}>{plant.name}</td>
+                <td style={cellStyle}>
+                  <span style={{ fontSize: 11, background: "#f0ede6", padding: "2px 8px", borderRadius: 4 }}>{plant.category}</span>
+                </td>
+                <td style={cellStyle}>{plant.size}</td>
+                <td style={{ ...cellStyle, textAlign: "right" }}>{plant.packSize || 1}</td>
+                <td style={{ ...cellStyle, textAlign: "right", fontWeight: 600 }}>{fmt(plant.price)}</td>
+                <td style={{ ...cellStyle, textAlign: "right", fontWeight: 700, color: plant.quantity <= 0 ? "#c0392b" : plant.quantity <= 5 ? "#e67e22" : "#333" }}>
+                  {plant.quantity}
+                </td>
+                <td style={{ ...cellStyle, color: "#888", fontSize: 12, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{plant.comments}</td>
+                <td style={cellStyle}>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button onClick={() => startEdit(plant)} style={{ color: "#4a6741" }}><Icon name="edit" size={16} /></button>
+                    <button onClick={() => deletePlant(plant.id)} style={{ color: "#c0392b" }}><Icon name="trash" size={16} /></button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function OrdersTab({ orders, saveOrders, plants, savePlants, showToast }) {
+  const [filter, setFilter] = useState("all");
+
+  const filtered = filter === "all" ? orders : orders.filter(o => o.status === filter);
+
+  const updateStatus = (orderId, newStatus) => {
+    const order = orders.find(o => o.id === orderId);
+
+    if (newStatus === "cancelled" && order && order.status !== "cancelled") {
+      const updatedPlants = plants.map(p => {
+        const item = order.items.find(i => i.plantId === p.id);
+        if (item) return { ...p, quantity: p.quantity + item.quantity };
+        return p;
+      });
+      savePlants(updatedPlants);
+    }
+
+    saveOrders(orders.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
+    showToast(`Order ${newStatus}`);
+  };
+
+  const statusColors = {
+    pending: { bg: "#fef9e7", text: "#e67e22", border: "#f4d03f" },
+    confirmed: { bg: "#e8f8f5", text: "#1abc9c", border: "#76d7c4" },
+    fulfilled: { bg: "#e8f5e3", text: "#27ae60", border: "#82e0aa" },
+    cancelled: { bg: "#fdedec", text: "#c0392b", border: "#f5b7b1" },
+  };
+
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
+        {["all", "pending", "confirmed", "fulfilled", "cancelled"].map(f => (
+          <button key={f} onClick={() => setFilter(f)}
+            style={{
+              padding: "7px 16px", borderRadius: 20, fontSize: 13, fontWeight: 500,
+              background: filter === f ? "#2c2c2c" : "#fff",
+              color: filter === f ? "#fff" : "#666",
+              border: `1px solid ${filter === f ? "#2c2c2c" : "#ddd"}`,
+              textTransform: "capitalize",
+            }}>
+            {f} {f !== "all" && `(${orders.filter(o => f === "all" || o.status === f).length})`}
+          </button>
+        ))}
+      </div>
+
+      {filtered.length === 0 ? (
+        <div style={{ textAlign: "center", padding: 40, color: "#999" }}>No orders found.</div>
+      ) : filtered.map(order => {
+        const sc = statusColors[order.status] || statusColors.pending;
+        const total = order.items.reduce((s, i) => s + i.quantity * i.unitPrice, 0);
+        return (
+          <div key={order.id} style={{ background: "#fff", borderRadius: 12, border: "1px solid #e8e4dc", padding: 20, marginBottom: 12, animation: "fadeUp .3s ease" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
+              <div>
+                <div style={{ fontSize: 11, color: "#999", marginBottom: 2 }}>{order.id}</div>
+                <div style={{ fontSize: 17, fontWeight: 700 }}>{order.customerName}</div>
+                <div style={{ fontSize: 13, color: "#777", marginTop: 2 }}>{order.customerEmail} · {order.customerPhone}</div>
+                {order.notes && <div style={{ fontSize: 13, color: "#888", marginTop: 4, fontStyle: "italic" }}>"{order.notes}"</div>}
+              </div>
+              <div style={{ textAlign: "right" }}>
+                <span style={{ fontSize: 12, fontWeight: 600, padding: "4px 12px", borderRadius: 20, background: sc.bg, color: sc.text, border: `1px solid ${sc.border}`, textTransform: "capitalize" }}>
+                  {order.status}
+                </span>
+                <div style={{ fontSize: 12, color: "#999", marginTop: 6 }}>{new Date(order.createdAt).toLocaleString()}</div>
+              </div>
+            </div>
+
+            <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid #f0f0f0" }}>
+              {order.items.map(item => (
+                <div key={item.plantId} style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", fontSize: 14 }}>
+                  <span>{item.plantName} <span style={{ color: "#999" }}>× {item.quantity}</span></span>
+                  <span style={{ fontWeight: 600 }}>{fmt(item.quantity * item.unitPrice)}</span>
+                </div>
+              ))}
+              <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 8, marginTop: 8, borderTop: "1px solid #f0f0f0", fontWeight: 700, fontSize: 16 }}>
+                <span>Total</span><span style={{ color: "#4a6741" }}>{fmt(total)}</span>
+              </div>
+            </div>
+
+            {order.status !== "fulfilled" && order.status !== "cancelled" && (
+              <div style={{ marginTop: 14, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {order.status === "pending" && (
+                  <button onClick={() => updateStatus(order.id, "confirmed")}
+                    style={{ padding: "7px 16px", borderRadius: 8, fontSize: 13, fontWeight: 600, background: "#1abc9c", color: "#fff" }}>
+                    Confirm
+                  </button>
+                )}
+                {(order.status === "pending" || order.status === "confirmed") && (
+                  <button onClick={() => updateStatus(order.id, "fulfilled")}
+                    style={{ padding: "7px 16px", borderRadius: 8, fontSize: 13, fontWeight: 600, background: "#4a6741", color: "#fff" }}>
+                    Mark Fulfilled
+                  </button>
+                )}
+                <button onClick={() => updateStatus(order.id, "cancelled")}
+                  style={{ padding: "7px 16px", borderRadius: 8, fontSize: 13, fontWeight: 600, background: "#fff", color: "#c0392b", border: "1px solid #c0392b" }}>
+                  Cancel Order
+                </button>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function UploadTab({ plants, savePlants, showToast }) {
+  const [preview, setPreview] = useState(null);
+  const [mode, setMode] = useState("merge");
+  const fileRef = useRef();
+
+  const handleFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      let rows = [];
+      if (file.name.endsWith(".csv")) {
+        const text = await file.text();
+        const result = Papa.parse(text, { header: true, skipEmptyLines: true });
+        rows = result.data;
+      } else {
+        const buf = await file.arrayBuffer();
+        const wb = XLSX.read(buf, { type: "array" });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        rows = XLSX.utils.sheet_to_json(ws);
+      }
+
+      const normalized = rows.map(row => {
+        const r = {};
+        Object.entries(row).forEach(([k, v]) => {
+          const key = k.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+          r[key] = v;
+        });
+        return {
+          name: r.name || r.plantname || r.plant || "",
+          category: r.category || r.type || r.cat || "Other",
+          size: r.size || r.potsize || r.containersize || "",
+          price: parseFloat(r.price || r.unitprice || r.cost || 0),
+          quantity: parseInt(r.quantity || r.qty || r.stock || r.available || 0, 10),
+          packSize: parseInt(r.packsize || r.pack || r.traysize || 1, 10) || 1,
+          comments: r.comments || r.notes || r.description || r.comment || "",
+        };
+      }).filter(r => r.name);
+
+      setPreview(normalized);
+      showToast(`Parsed ${normalized.length} plants from ${file.name}`);
+    } catch (err) {
+      showToast("Error parsing file: " + err.message, "error");
+    }
+  };
+
+  const applyUpload = () => {
+    if (!preview) return;
+    let updated;
+    if (mode === "replace") {
+      updated = preview.map(p => ({ ...p, id: genId() }));
+    } else {
+      updated = [...plants];
+      preview.forEach(incoming => {
+        const idx = updated.findIndex(p => p.name.toLowerCase() === incoming.name.toLowerCase());
+        if (idx >= 0) {
+          updated[idx] = { ...updated[idx], ...incoming };
+        } else {
+          updated.push({ ...incoming, id: genId() });
+        }
+      });
+    }
+    savePlants(updated);
+    setPreview(null);
+    if (fileRef.current) fileRef.current.value = "";
+    showToast(`Inventory updated: ${updated.length} plants`);
+  };
+
+  const downloadCSV = () => {
+    const csv = Papa.unparse(plants.map(p => ({
+      Name: p.name, Category: p.category, Size: p.size, Price: p.price,
+      Quantity: p.quantity, "Pack Size": p.packSize, Comments: p.comments,
+    })));
+    const blob = new Blob([csv], { type: "text/csv" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `plant-inventory-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+  };
+
+  const downloadXLSX = () => {
+    const data = plants.map(p => ({
+      Name: p.name, Category: p.category, Size: p.size, Price: p.price,
+      Quantity: p.quantity, "Pack Size": p.packSize, Comments: p.comments,
+    }));
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Inventory");
+    XLSX.writeFile(wb, `plant-inventory-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
+  const cellStyle = { padding: "8px 10px", fontSize: 12, borderBottom: "1px solid #f0ede6" };
+  const thStyle = { ...cellStyle, fontWeight: 600, fontSize: 11, color: "#888", background: "#faf8f4", textTransform: "uppercase", letterSpacing: 1 };
+
+  return (
+    <div>
+      <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e8e4dc", padding: 24, marginBottom: 20 }}>
+        <h3 style={{ fontFamily: "'Playfair Display', serif", fontSize: 20, marginBottom: 4 }}>Upload Inventory</h3>
+        <p style={{ color: "#888", fontSize: 13, marginBottom: 16 }}>
+          Upload a CSV or XLSX file. Expected columns: Name, Category, Size, Price, Quantity, Pack Size, Comments.
+          Column names are matched flexibly (e.g. "qty" works for quantity).
+        </p>
+
+        <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginBottom: 16 }}>
+          <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" onChange={handleFile}
+            style={{ fontSize: 13 }} />
+          <div style={{ display: "flex", gap: 8 }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 13, cursor: "pointer" }}>
+              <input type="radio" name="mode" checked={mode === "merge"} onChange={() => setMode("merge")} /> Merge/Update
+            </label>
+            <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 13, cursor: "pointer" }}>
+              <input type="radio" name="mode" checked={mode === "replace"} onChange={() => setMode("replace")} /> Full Replace
+            </label>
+          </div>
+        </div>
+
+        {mode === "merge" && (
+          <p style={{ fontSize: 12, color: "#888", background: "#fef9e7", padding: "8px 12px", borderRadius: 6, marginBottom: 12 }}>
+            Merge mode matches plants by name. Existing plants are updated, new ones are added, and unmatched existing plants are kept.
+          </p>
+        )}
+        {mode === "replace" && (
+          <p style={{ fontSize: 12, color: "#c0392b", background: "#fdedec", padding: "8px 12px", borderRadius: 6, marginBottom: 12 }}>
+            Replace mode will remove ALL existing plants and replace them with the uploaded file.
+          </p>
+        )}
+
+        {preview && (
+          <div>
+            <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>Preview ({preview.length} plants)</h4>
+            <div style={{ maxHeight: 300, overflow: "auto", borderRadius: 8, border: "1px solid #e8e4dc" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 500 }}>
+                <thead>
+                  <tr>
+                    {["Name", "Category", "Size", "Price", "Qty", "Pack", "Comments"].map(h => (
+                      <th key={h} style={thStyle}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {preview.slice(0, 50).map((p, i) => (
+                    <tr key={i}>
+                      <td style={{ ...cellStyle, fontWeight: 600 }}>{p.name}</td>
+                      <td style={cellStyle}>{p.category}</td>
+                      <td style={cellStyle}>{p.size}</td>
+                      <td style={{ ...cellStyle, textAlign: "right" }}>{fmt(p.price)}</td>
+                      <td style={{ ...cellStyle, textAlign: "right" }}>{p.quantity}</td>
+                      <td style={{ ...cellStyle, textAlign: "right" }}>{p.packSize}</td>
+                      <td style={{ ...cellStyle, color: "#888" }}>{p.comments}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {preview.length > 50 && <p style={{ fontSize: 12, color: "#999", marginTop: 4 }}>Showing first 50 of {preview.length}...</p>}
+
+            <div style={{ display: "flex", gap: 12, marginTop: 16 }}>
+              <button onClick={applyUpload}
+                style={{ padding: "10px 24px", background: "#4a6741", color: "#fff", borderRadius: 8, fontSize: 14, fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
+                <Icon name="check" size={16} /> Apply {mode === "replace" ? "Replace" : "Merge"}
+              </button>
+              <button onClick={() => { setPreview(null); if (fileRef.current) fileRef.current.value = ""; }}
+                style={{ padding: "10px 24px", background: "#fff", color: "#666", borderRadius: 8, fontSize: 14, border: "1px solid #ddd" }}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e8e4dc", padding: 24 }}>
+        <h3 style={{ fontFamily: "'Playfair Display', serif", fontSize: 20, marginBottom: 4 }}>Download Current Inventory</h3>
+        <p style={{ color: "#888", fontSize: 13, marginBottom: 16 }}>
+          Export the current inventory ({plants.length} plants) as a spreadsheet.
+        </p>
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+          <button onClick={downloadCSV}
+            style={{ padding: "10px 20px", background: "#fff", border: "1px solid #4a6741", color: "#4a6741", borderRadius: 8, fontSize: 14, fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
+            <Icon name="download" size={16} /> Download CSV
+          </button>
+          <button onClick={downloadXLSX}
+            style={{ padding: "10px 20px", background: "#4a6741", color: "#fff", borderRadius: 8, fontSize: 14, fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
+            <Icon name="download" size={16} /> Download XLSX
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
