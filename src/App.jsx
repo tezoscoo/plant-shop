@@ -150,6 +150,7 @@ function ShopView({ plants, cart, updateCartQty, removeFromCart, submitOrder, sh
   const [orderConfirm, setOrderConfirm] = useState(null);
   const [sortCol, setSortCol] = useState("category");
   const [sortDir, setSortDir] = useState("asc");
+  const [sizeFilter, setSizeFilter] = useState("All");
 
   const toggleSort = (col) => {
     if (sortCol === col) setSortDir(d => d === "asc" ? "desc" : "asc");
@@ -158,12 +159,18 @@ function ShopView({ plants, cart, updateCartQty, removeFromCart, submitOrder, sh
 
   let filtered = plants.filter(p => {
     if (category !== "All" && p.category !== category) return false;
+    if (sizeFilter !== "All" && p.size !== sizeFilter) return false;
     if (search) {
       const s = search.toLowerCase();
-      return p.name.toLowerCase().includes(s) || (p.variety || "").toLowerCase().includes(s) || (p.comments || "").toLowerCase().includes(s) || p.category.toLowerCase().includes(s);
+      return p.name.toLowerCase().includes(s) || (p.variety || "").toLowerCase().includes(s) || (p.comments || "").toLowerCase().includes(s) || p.category.toLowerCase().includes(s) || (p.size || "").toLowerCase().includes(s);
     }
     return true;
   });
+
+  const availableSizes = Array.from(new Set(plants.map(p => p.size).filter(Boolean)))
+    .sort((a, b) => (parseFloat(a) || 0) - (parseFloat(b) || 0));
+  const filtersActive = search !== "" || category !== "All" || sizeFilter !== "All";
+  const resetFilters = () => { setSearch(""); setCategory("All"); setSizeFilter("All"); };
 
   filtered = [...filtered].sort((a, b) => {
     let av = a[sortCol], bv = b[sortCol];
@@ -195,7 +202,7 @@ function ShopView({ plants, cart, updateCartQty, removeFromCart, submitOrder, sh
   const thBase = {
     padding: "10px 10px", fontSize: 11, fontWeight: 700, letterSpacing: 1,
     textTransform: "uppercase", color: "#fff", background: "#4a6741",
-    position: "sticky", top: 0, zIndex: 2, cursor: "pointer",
+    position: "sticky", top: 60, zIndex: 2, cursor: "pointer",
     userSelect: "none", borderRight: "1px solid rgba(255,255,255,.15)",
   };
   const tdBase = {
@@ -241,7 +248,9 @@ function ShopView({ plants, cart, updateCartQty, removeFromCart, submitOrder, sh
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
           <div style={{ position: "relative", width: 240 }}>
             <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "#999" }}><Icon name="search" size={16} /></span>
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search plants..."
+            <input value={search} onChange={e => setSearch(e.target.value)}
+              onKeyDown={e => { if (e.key === "Escape") setSearch(""); }}
+              placeholder="Search plants... (Esc to clear)"
               style={{ width: "100%", padding: "8px 10px 8px 34px", border: "1px solid #ddd", borderRadius: 6, fontSize: 13, background: "#fff", outline: "none" }} />
           </div>
           <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
@@ -259,6 +268,22 @@ function ShopView({ plants, cart, updateCartQty, removeFromCart, submitOrder, sh
             {cartCount > 0 && <span style={{ marginLeft: 12, color: "#4a6741", fontWeight: 600 }}>{cartCount} in cart</span>}
           </div>
         </div>
+        {availableSizes.length > 1 && (
+          <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
+            <span style={{ fontSize: 10, color: "#888", letterSpacing: 1, textTransform: "uppercase", marginRight: 4 }}>Size</span>
+            {["All", ...availableSizes].map(sz => (
+              <button key={sz} onClick={() => setSizeFilter(sz)} style={{
+                padding: "4px 10px", borderRadius: 16, fontSize: 11, fontWeight: 500,
+                background: sizeFilter === sz ? "#4a6741" : "#fff",
+                color: sizeFilter === sz ? "#fff" : "#666",
+                border: `1px solid ${sizeFilter === sz ? "#4a6741" : "#ddd"}`,
+              }}>{sz}</button>
+            ))}
+            {filtersActive && (
+              <button onClick={resetFilters} style={{ marginLeft: 6, padding: "4px 10px", fontSize: 11, color: "#4a6741", textDecoration: "underline" }}>Reset filters</button>
+            )}
+          </div>
+        )}
       </div>
 
       <div style={{ maxWidth: 1400, margin: "0 auto", padding: "12px 24px 30px" }}>
@@ -338,7 +363,12 @@ function ShopView({ plants, cart, updateCartQty, removeFromCart, submitOrder, sh
                 );
               })}
               {filtered.length === 0 && (
-                <tr><td colSpan={9} style={{ padding: 40, textAlign: "center", color: "#999" }}>No plants match your search.</td></tr>
+                <tr><td colSpan={9} style={{ padding: 40, textAlign: "center", color: "#999" }}>
+                  No plants match your search.
+                  {filtersActive && (
+                    <button onClick={resetFilters} style={{ marginLeft: 10, color: "#4a6741", textDecoration: "underline", fontSize: 13 }}>Reset filters</button>
+                  )}
+                </td></tr>
               )}
             </tbody>
           </table>
