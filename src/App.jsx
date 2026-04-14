@@ -214,7 +214,7 @@ function ShopView({ plants, cart, updateCartQty, removeFromCart, submitOrder, sh
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <Icon name="leaf" size={26} />
             <div>
-              <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 20, fontWeight: 600, lineHeight: 1.1 }}>Plant Inventory</div>
+              <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 20, fontWeight: 600, lineHeight: 1.1 }}>Park Greenhouse</div>
               <div style={{ fontSize: 10, opacity: .75, letterSpacing: 2, textTransform: "uppercase" }}>Wholesale Nursery — Current Availability</div>
             </div>
           </div>
