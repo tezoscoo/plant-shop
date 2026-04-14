@@ -245,7 +245,7 @@ function ShopView({ plants, cart, updateCartQty, removeFromCart, submitOrder, sh
               style={{ width: "100%", padding: "8px 10px 8px 34px", border: "1px solid #ddd", borderRadius: 6, fontSize: 13, background: "#fff", outline: "none" }} />
           </div>
           <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-            {CATEGORIES.filter(c => c === "All" || plants.some(p => p.category === c)).map(cat => (
+            {["All", ...Array.from(new Set(plants.map(p => p.category).filter(Boolean))).sort()].map(cat => (
               <button key={cat} onClick={() => setCategory(cat)} style={{
                 padding: "5px 12px", borderRadius: 16, fontSize: 12, fontWeight: 500,
                 background: category === cat ? "#4a6741" : "#fff",
