@@ -69,12 +69,16 @@ function usePageHeaderHeight(ref) {
     const el = ref.current;
     if (!el) return;
     const update = () => {
-      document.documentElement.style.setProperty("--sticky-header-h", el.offsetHeight + "px");
+      // Use getBoundingClientRect for sub-pixel accuracy; round up so the table
+      // header never sits a fractional pixel beneath the page header.
+      const h = Math.ceil(el.getBoundingClientRect().height);
+      document.documentElement.style.setProperty("--sticky-header-h", h + "px");
     };
     update();
     const ro = new ResizeObserver(update);
     ro.observe(el);
-    return () => { ro.disconnect(); };
+    window.addEventListener("load", update);
+    return () => { ro.disconnect(); window.removeEventListener("load", update); };
   }, [ref]);
 }
 const STICKY_TOP = "var(--sticky-header-h, 60px)";
@@ -170,6 +174,12 @@ function ShopView({ plants, cart, updateCartQty, removeFromCart, submitOrder, sh
   const [sortCol, setSortCol] = useState("category");
   const [sortDir, setSortDir] = useState("asc");
   const [sizeFilter, setSizeFilter] = useState("All");
+
+  // When the user switches category or size filters, reset scroll to the top so
+  // the first row of the new result set isn't hidden beneath the sticky table header.
+  useEffect(() => {
+    if (window.scrollY > 0) window.scrollTo(0, 0);
+  }, [category, sizeFilter]);
 
   const toggleSort = (col) => {
     if (sortCol === col) setSortDir(d => d === "asc" ? "desc" : "asc");
