@@ -62,6 +62,23 @@ const fmt = (n) => "$" + Number(n).toFixed(2);
 const genId = () => "id-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const CATEGORIES = ["All", "Trees", "Shrubs", "Perennials", "Grasses", "Annuals", "Vines", "Groundcovers", "Succulents", "Other"];
 
+// Measures the page header element and exposes its height as the CSS variable
+// --sticky-header-h on the document root, so sticky table headers can offset below it.
+function usePageHeaderHeight(ref) {
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const update = () => {
+      document.documentElement.style.setProperty("--sticky-header-h", el.offsetHeight + "px");
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => { ro.disconnect(); };
+  }, [ref]);
+}
+const STICKY_TOP = "var(--sticky-header-h, 60px)";
+
 export default function App() {
   const [view, setView] = useState("shop");
   const [plants, setPlants] = useState([]);
@@ -143,6 +160,8 @@ export default function App() {
 // ─── SHOP VIEW ────────────────────────────
 // ═══════════════════════════════════════════
 function ShopView({ plants, cart, updateCartQty, removeFromCart, submitOrder, showToast, onGoAdmin }) {
+  const headerRef = useRef(null);
+  usePageHeaderHeight(headerRef);
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("All");
   const [cartOpen, setCartOpen] = useState(false);
@@ -202,7 +221,7 @@ function ShopView({ plants, cart, updateCartQty, removeFromCart, submitOrder, sh
   const thBase = {
     padding: "10px 10px", fontSize: 11, fontWeight: 700, letterSpacing: 1,
     textTransform: "uppercase", color: "#fff", background: "#4a6741",
-    position: "sticky", top: 60, zIndex: 2, cursor: "pointer",
+    position: "sticky", top: STICKY_TOP, zIndex: 2, cursor: "pointer",
     userSelect: "none", borderRight: "1px solid rgba(255,255,255,.15)",
   };
   const tdBase = {
@@ -212,7 +231,7 @@ function ShopView({ plants, cart, updateCartQty, removeFromCart, submitOrder, sh
 
   return (
     <div>
-      <header style={{
+      <header ref={headerRef} style={{
         background: "linear-gradient(135deg, #4a6741 0%, #5c7a52 50%, #6b8c5e 100%)",
         color: "#fff", position: "sticky", top: 0, zIndex: 100,
         boxShadow: "0 2px 20px rgba(74,103,65,.3)",
@@ -517,9 +536,11 @@ function OrderConfirmModal({ order, onClose }) {
 // ═══════════════════════════════════════════
 function AdminView({ plants, orders, savePlants, saveOrders, showToast, onGoShop }) {
   const [tab, setTab] = useState("inventory");
+  const headerRef = useRef(null);
+  usePageHeaderHeight(headerRef);
   return (
     <div>
-      <header style={{ background: "#2c2c2c", color: "#fff", position: "sticky", top: 0, zIndex: 100 }}>
+      <header ref={headerRef} style={{ background: "#2c2c2c", color: "#fff", position: "sticky", top: 0, zIndex: 100 }}>
         <div style={{ maxWidth: 1400, margin: "0 auto", padding: "12px 24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}><Icon name="settings" size={22} /><span style={{ fontFamily: "'Playfair Display', serif", fontSize: 18, fontWeight: 600 }}>Admin Dashboard</span></div>
           <button onClick={onGoShop} style={{ color: "#fff", opacity: .7, fontSize: 12, letterSpacing: 1, textTransform: "uppercase", display: "flex", alignItems: "center", gap: 6 }}><Icon name="arrowLeft" size={16} /> Back to Shop</button>
@@ -560,7 +581,7 @@ function InventoryTab({ plants, savePlants, showToast }) {
   const saveEdit = () => { savePlants(plants.map(p => p.id === editing ? { ...editForm, price: Number(editForm.price), quantity: Number(editForm.quantity), packSize: Number(editForm.packSize) || 1 } : p)); setEditing(null); showToast("Plant updated"); };
   const deletePlant = (id) => { savePlants(plants.filter(p => p.id !== id)); showToast("Plant removed"); };
   const cellStyle = { padding: "8px 10px", fontSize: 12, borderBottom: "1px solid #f0ede6" };
-  const thStyle = { ...cellStyle, fontWeight: 600, color: "#888", fontSize: 10, letterSpacing: 1, textTransform: "uppercase", background: "#faf8f4", position: "sticky", top: 0 };
+  const thStyle = { ...cellStyle, fontWeight: 600, color: "#888", fontSize: 10, letterSpacing: 1, textTransform: "uppercase", background: "#faf8f4", position: "sticky", top: STICKY_TOP, zIndex: 2 };
   const editInp = { padding: "5px 6px", border: "1px solid #ddd", borderRadius: 5, fontSize: 12, width: "100%", background: "#fff" };
   return (
     <div>
