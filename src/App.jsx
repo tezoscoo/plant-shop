@@ -316,7 +316,7 @@ function ShopView({ plants, cart, updateCartQty, removeFromCart, submitOrder, sh
       </div>
 
       <div style={{ maxWidth: 1400, margin: "0 auto", padding: "12px 24px 30px" }}>
-        <div style={{ background: "#fff", borderRadius: 10, border: "1px solid #ddd", overflow: "hidden", boxShadow: "0 1px 8px rgba(0,0,0,.05)" }}>
+        <div style={{ background: "#fff", borderRadius: 10, border: "1px solid #ddd", overflow: "clip", boxShadow: "0 1px 8px rgba(0,0,0,.05)" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
             <colgroup>
               {columns.map(col => (
