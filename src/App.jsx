@@ -1,11 +1,26 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
+import { supabase } from "./lib/supabase";
 
+// localStorage wrapper — used for orders + plant writes until phases 2-3 migrate them.
 const DB = {
   get(key) { try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : null; } catch { return null; } },
   set(key, val) { try { localStorage.setItem(key, JSON.stringify(val)); } catch(e) { console.error("Storage error:", e); } },
 };
+
+// Supabase uses snake_case; the rest of the app uses camelCase. Map between them.
+const rowToPlant = (r) => ({
+  id: r.id,
+  name: r.name,
+  variety: r.variety || "",
+  category: r.category,
+  size: r.size || "",
+  price: Number(r.price) || 0,
+  quantity: r.quantity || 0,
+  packSize: r.pack_size || 1,
+  comments: r.comments || "",
+});
 
 const SEED_PLANTS = [
   { id: "p1", name: "Japanese Maple", category: "Trees", size: '5 gal', price: 45.00, quantity: 24, packSize: 1, comments: "Fall color specimen", variety: "Bloodgood" },
@@ -89,14 +104,32 @@ export default function App() {
   const [orders, setOrders] = useState([]);
   const [cart, setCart] = useState([]);
   const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState(null);
   const [toast, setToast] = useState(null);
 
   useEffect(() => {
-    let p = DB.get("plants");
-    let o = DB.get("orders");
-    if (!p) { p = SEED_PLANTS; DB.set("plants", p); }
-    if (!o) { o = SEED_ORDERS; DB.set("orders", o); }
-    setPlants(p); setOrders(o); setLoaded(true);
+    let cancelled = false;
+    (async () => {
+      // Phase 1: plants come from Supabase. Orders + writes still use localStorage.
+      const { data, error } = await supabase
+        .from("plants")
+        .select("*");
+      if (cancelled) return;
+      if (error) {
+        console.error("[supabase] plants read failed:", error);
+        setLoadError(error.message || "Unable to load inventory from the database.");
+        setLoaded(true);
+        return;
+      }
+      setPlants((data || []).map(rowToPlant));
+
+      // Orders still come from localStorage until phase 2.
+      let o = DB.get("orders");
+      if (!o) { o = SEED_ORDERS; DB.set("orders", o); }
+      setOrders(o);
+      setLoaded(true);
+    })();
+    return () => { cancelled = true; };
   }, []);
 
   const savePlants = useCallback((p) => { setPlants(p); DB.set("plants", p); }, []);
@@ -132,6 +165,16 @@ export default function App() {
   if (!loaded) return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", fontFamily: "'DM Sans', sans-serif", background: "#f7f5f0" }}>
       <div style={{ textAlign: "center", color: "#6b7c5e" }}><Icon name="leaf" size={40} /><div style={{ marginTop: 12, fontSize: 14, letterSpacing: 2 }}>LOADING...</div></div>
+    </div>
+  );
+
+  if (loadError) return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", fontFamily: "'DM Sans', sans-serif", background: "#f7f5f0", padding: 24 }}>
+      <div style={{ maxWidth: 520, background: "#fff", padding: 32, borderRadius: 10, border: "1px solid #e8dada", textAlign: "center", boxShadow: "0 1px 8px rgba(0,0,0,.05)" }}>
+        <div style={{ color: "#c0392b", fontSize: 13, fontWeight: 700, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 10 }}>Unable to load inventory</div>
+        <div style={{ color: "#444", fontSize: 13, lineHeight: 1.5, fontFamily: "monospace", background: "#faf5f5", padding: 10, borderRadius: 6, border: "1px solid #f0e0e0" }}>{loadError}</div>
+        <div style={{ color: "#999", fontSize: 11, marginTop: 14, lineHeight: 1.5 }}>Check that <code>VITE_SUPABASE_URL</code> and <code>VITE_SUPABASE_ANON_KEY</code> are set in the environment and that the plants table has a public read policy.</div>
+      </div>
     </div>
   );
 
