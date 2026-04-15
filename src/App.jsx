@@ -21,6 +21,18 @@ const rowToPlant = (r) => ({
   packSize: r.pack_size || 1,
   comments: r.comments || "",
 });
+const plantToRow = (p) => ({
+  id: p.id,
+  name: p.name,
+  variety: p.variety || null,
+  category: p.category,
+  size: p.size || null,
+  price: Number(p.price) || 0,
+  quantity: Number(p.quantity) || 0,
+  pack_size: Number(p.packSize) || 1,
+  comments: p.comments || null,
+  updated_at: new Date().toISOString(),
+});
 
 const SEED_PLANTS = [
   { id: "p1", name: "Japanese Maple", category: "Trees", size: '5 gal', price: 45.00, quantity: 24, packSize: 1, comments: "Fall color specimen", variety: "Bloodgood" },
@@ -106,11 +118,12 @@ export default function App() {
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState(null);
   const [toast, setToast] = useState(null);
+  const [session, setSession] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      // Phase 1: plants come from Supabase. Orders + writes still use localStorage.
+      // Phase 1-2: plants come from Supabase. Orders still use localStorage (phase 3).
       const { data, error } = await supabase
         .from("plants")
         .select("*");
@@ -123,7 +136,7 @@ export default function App() {
       }
       setPlants((data || []).map(rowToPlant));
 
-      // Orders still come from localStorage until phase 2.
+      // Orders still come from localStorage until phase 3.
       let o = DB.get("orders");
       if (!o) { o = SEED_ORDERS; DB.set("orders", o); }
       setOrders(o);
@@ -132,9 +145,48 @@ export default function App() {
     return () => { cancelled = true; };
   }, []);
 
-  const savePlants = useCallback((p) => { setPlants(p); DB.set("plants", p); }, []);
+  // Track the admin auth session. Shop view is public; AdminView gates on this.
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => setSession(data?.session || null));
+    const { data: sub } = supabase.auth.onAuthStateChange((_evt, sess) => setSession(sess));
+    return () => { try { sub.subscription.unsubscribe(); } catch {} };
+  }, []);
+
+  const showToast = useCallback((msg, type = "success") => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3000);
+  }, []);
+
+  // Phase 2: plant writes go through Supabase. Callers still pass the full new
+  // array; we diff it against current state, upsert changed rows, and delete
+  // anything removed. Optimistically update local state, roll back on failure.
+  const savePlants = useCallback(async (next) => {
+    let prev = [];
+    setPlants(curr => { prev = curr; return next; });
+    const nextIds = new Set(next.map(p => p.id));
+    const deletedIds = prev.filter(p => !nextIds.has(p.id)).map(p => p.id);
+    try {
+      if (next.length > 0) {
+        const { error: upErr } = await supabase.from("plants").upsert(next.map(plantToRow));
+        if (upErr) throw upErr;
+      }
+      if (deletedIds.length > 0) {
+        const { error: delErr } = await supabase.from("plants").delete().in("id", deletedIds);
+        if (delErr) throw delErr;
+      }
+    } catch (err) {
+      console.error("[supabase] plants write failed:", err);
+      setPlants(prev);
+      showToast("Save failed: " + (err.message || "unknown error"), "error");
+    }
+  }, [showToast]);
+
   const saveOrders = useCallback((o) => { setOrders(o); DB.set("orders", o); }, []);
-  const showToast = (msg, type = "success") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); };
+
+  const signOut = useCallback(async () => {
+    await supabase.auth.signOut();
+    showToast("Signed out");
+  }, [showToast]);
 
   const updateCartQty = (plantId, qty) => {
     if (qty <= 0) { setCart(prev => prev.filter(c => c.plantId !== plantId)); return; }
@@ -197,7 +249,11 @@ export default function App() {
       {view === "shop" ? (
         <ShopView plants={plants} cart={cart} updateCartQty={updateCartQty} removeFromCart={removeFromCart} submitOrder={submitOrder} showToast={showToast} onGoAdmin={() => setView("admin")} />
       ) : (
-        <AdminView plants={plants} orders={orders} savePlants={savePlants} saveOrders={saveOrders} showToast={showToast} onGoShop={() => setView("shop")} />
+        session ? (
+          <AdminView plants={plants} orders={orders} savePlants={savePlants} saveOrders={saveOrders} showToast={showToast} onGoShop={() => setView("shop")} onSignOut={signOut} session={session} />
+        ) : (
+          <AdminLogin onGoShop={() => setView("shop")} showToast={showToast} />
+        )
       )}
     </div>
   );
@@ -585,18 +641,72 @@ function OrderConfirmModal({ order, onClose }) {
 }
 
 // ═══════════════════════════════════════════
+// ─── ADMIN LOGIN ──────────────────────────
+// ═══════════════════════════════════════════
+function AdminLogin({ onGoShop, showToast }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [err, setErr] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!email || !password) return;
+    setBusy(true); setErr(null);
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    setBusy(false);
+    if (error) { setErr(error.message); return; }
+    showToast("Signed in");
+    // onAuthStateChange in App will flip to AdminView automatically.
+  };
+  const inp = { width: "100%", padding: "10px 14px", border: "1px solid #ddd", borderRadius: 8, fontSize: 14, background: "#fafaf8", outline: "none" };
+  return (
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, background: "#f7f5f0" }}>
+      <form onSubmit={submit} style={{ width: "100%", maxWidth: 380, background: "#fff", borderRadius: 14, border: "1px solid #e8e4dc", padding: 32, boxShadow: "0 2px 20px rgba(0,0,0,.06)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4, color: "#4a6741" }}>
+          <Icon name="leaf" size={22} />
+          <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 22, fontWeight: 600, color: "#2c2c2c" }}>Admin Sign In</h2>
+        </div>
+        <p style={{ color: "#888", fontSize: 12, marginBottom: 18 }}>Park Greenhouse staff only.</p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: "#666", marginBottom: 4, display: "block" }}>Email</label>
+            <input type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} style={inp} placeholder="you@example.com" />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: "#666", marginBottom: 4, display: "block" }}>Password</label>
+            <input type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} style={inp} placeholder="••••••••" />
+          </div>
+          {err && <div style={{ fontSize: 12, color: "#c0392b", background: "#fdedec", border: "1px solid #f5b7b1", padding: "8px 10px", borderRadius: 6 }}>{err}</div>}
+          <button type="submit" disabled={busy || !email || !password} style={{ width: "100%", padding: 12, marginTop: 4, background: (busy || !email || !password) ? "#ccc" : "#4a6741", color: "#fff", borderRadius: 10, fontSize: 14, fontWeight: 600 }}>
+            {busy ? "Signing in..." : "Sign In"}
+          </button>
+          <button type="button" onClick={onGoShop} style={{ fontSize: 12, color: "#888", marginTop: 4, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+            <Icon name="arrowLeft" size={14} /> Back to shop
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════
 // ─── ADMIN VIEW ───────────────────────────
 // ═══════════════════════════════════════════
-function AdminView({ plants, orders, savePlants, saveOrders, showToast, onGoShop }) {
+function AdminView({ plants, orders, savePlants, saveOrders, showToast, onGoShop, onSignOut, session }) {
   const [tab, setTab] = useState("inventory");
   const headerRef = useRef(null);
   usePageHeaderHeight(headerRef);
+  const adminEmail = session?.user?.email || "";
   return (
     <div>
       <header ref={headerRef} style={{ background: "#2c2c2c", color: "#fff", position: "sticky", top: 0, zIndex: 100 }}>
         <div style={{ maxWidth: 1400, margin: "0 auto", padding: "12px 24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}><Icon name="settings" size={22} /><span style={{ fontFamily: "'Playfair Display', serif", fontSize: 18, fontWeight: 600 }}>Admin Dashboard</span></div>
-          <button onClick={onGoShop} style={{ color: "#fff", opacity: .7, fontSize: 12, letterSpacing: 1, textTransform: "uppercase", display: "flex", alignItems: "center", gap: 6 }}><Icon name="arrowLeft" size={16} /> Back to Shop</button>
+          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+            {adminEmail && <span style={{ color: "#fff", opacity: .55, fontSize: 11, letterSpacing: .5 }}>{adminEmail}</span>}
+            <button onClick={onSignOut} style={{ color: "#fff", opacity: .7, fontSize: 12, letterSpacing: 1, textTransform: "uppercase" }}>Sign out</button>
+            <button onClick={onGoShop} style={{ color: "#fff", opacity: .7, fontSize: 12, letterSpacing: 1, textTransform: "uppercase", display: "flex", alignItems: "center", gap: 6 }}><Icon name="arrowLeft" size={16} /> Back to Shop</button>
+          </div>
         </div>
         <div style={{ maxWidth: 1400, margin: "0 auto", padding: "0 24px", display: "flex" }}>
           {[{ key: "inventory", label: "Inventory", icon: "box" }, { key: "orders", label: "Orders", icon: "clipboard" }, { key: "upload", label: "Upload / Download", icon: "upload" }].map(t => (
