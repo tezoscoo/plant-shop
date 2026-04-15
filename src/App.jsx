@@ -3,13 +3,17 @@ import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import { supabase } from "./lib/supabase";
 
-// localStorage wrapper — used for orders + plant writes until phases 2-3 migrate them.
-const DB = {
-  get(key) { try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : null; } catch { return null; } },
-  set(key, val) { try { localStorage.setItem(key, JSON.stringify(val)); } catch(e) { console.error("Storage error:", e); } },
-};
-
 // Supabase uses snake_case; the rest of the app uses camelCase. Map between them.
+const rowToOrder = (r) => ({
+  id: r.id,
+  customerName: r.customer_name,
+  customerEmail: r.customer_email || "",
+  customerPhone: r.customer_phone || "",
+  notes: r.notes || "",
+  status: r.status,
+  items: Array.isArray(r.items) ? r.items : [],
+  createdAt: r.created_at,
+});
 const rowToPlant = (r) => ({
   id: r.id,
   name: r.name,
@@ -53,11 +57,6 @@ const SEED_PLANTS = [
   { id: "p16", name: "Black-Eyed Susan", category: "Perennials", size: '1 gal', price: 6.50, quantity: 110, packSize: 18, comments: "Native wildflower, drought tolerant", variety: "Goldsturm" },
   { id: "p17", name: "Fountain Grass", category: "Grasses", size: '3 gal', price: 14.00, quantity: 60, packSize: 8, comments: "Burgundy foliage, annual in cold zones", variety: "Rubrum" },
   { id: "p18", name: "Azalea", category: "Shrubs", size: '3 gal', price: 19.00, quantity: 3, packSize: 6, comments: "Spring bloomer, evergreen", variety: "Encore Autumn Amethyst" },
-];
-
-const SEED_ORDERS = [
-  { id: "ord-001", customerName: "Valley Landscaping", customerEmail: "info@valleylandscaping.com", customerPhone: "(209) 555-0142", notes: "Will pick up Friday AM", status: "pending", items: [{ plantId: "p1", plantName: "Japanese Maple - Bloodgood", quantity: 3, unitPrice: 45.00 }, { plantId: "p3", plantName: "Knockout Rose - Double Red", quantity: 12, unitPrice: 22.00 }], createdAt: new Date(Date.now() - 86400000).toISOString() },
-  { id: "ord-002", customerName: "Sara Mitchell", customerEmail: "sara.m@email.com", customerPhone: "(209) 555-0298", notes: "", status: "confirmed", items: [{ plantId: "p6", plantName: "Hosta - Sum & Substance", quantity: 6, unitPrice: 12.00 }], createdAt: new Date(Date.now() - 172800000).toISOString() },
 ];
 
 const Icon = ({ name, size = 20 }) => {
@@ -123,7 +122,6 @@ export default function App() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      // Phase 1-2: plants come from Supabase. Orders still use localStorage (phase 3).
       const { data, error } = await supabase
         .from("plants")
         .select("*");
@@ -135,15 +133,27 @@ export default function App() {
         return;
       }
       setPlants((data || []).map(rowToPlant));
-
-      // Orders still come from localStorage until phase 3.
-      let o = DB.get("orders");
-      if (!o) { o = SEED_ORDERS; DB.set("orders", o); }
-      setOrders(o);
       setLoaded(true);
     })();
     return () => { cancelled = true; };
   }, []);
+
+  // Orders are admin-only (RLS blocks anon reads). Load them when a session
+  // appears; clear them when the admin signs out.
+  useEffect(() => {
+    if (!session) { setOrders([]); return; }
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from("orders")
+        .select("*")
+        .order("created_at", { ascending: false });
+      if (cancelled) return;
+      if (error) { console.error("[supabase] orders read failed:", error); return; }
+      setOrders((data || []).map(rowToOrder));
+    })();
+    return () => { cancelled = true; };
+  }, [session]);
 
   // Track the admin auth session. Shop view is public; AdminView gates on this.
   useEffect(() => {
@@ -181,7 +191,28 @@ export default function App() {
     }
   }, [showToast]);
 
-  const saveOrders = useCallback((o) => { setOrders(o); DB.set("orders", o); }, []);
+  // Phase 3: orders live in Supabase. The only app-driven write is a status
+  // change from the admin Orders tab; diff the new array against current state
+  // and push each changed row. Optimistic + rollback on failure.
+  const saveOrders = useCallback(async (next) => {
+    let prev = [];
+    setOrders(curr => { prev = curr; return next; });
+    const prevMap = new Map(prev.map(o => [o.id, o]));
+    const changed = next.filter(o => {
+      const p = prevMap.get(o.id);
+      return p && p.status !== o.status;
+    });
+    try {
+      for (const o of changed) {
+        const { error } = await supabase.from("orders").update({ status: o.status }).eq("id", o.id);
+        if (error) throw error;
+      }
+    } catch (err) {
+      console.error("[supabase] orders write failed:", err);
+      setOrders(prev);
+      showToast("Save failed: " + (err.message || "unknown error"), "error");
+    }
+  }, [showToast]);
 
   const signOut = useCallback(async () => {
     await supabase.auth.signOut();
@@ -202,14 +233,38 @@ export default function App() {
 
   const removeFromCart = (plantId) => setCart(prev => prev.filter(c => c.plantId !== plantId));
 
-  const submitOrder = (customerInfo) => {
-    const updatedPlants = plants.map(p => {
-      const cartItem = cart.find(c => c.plantId === p.id);
-      if (cartItem) return { ...p, quantity: Math.max(0, p.quantity - cartItem.quantity) };
-      return p;
+  // Phase 3: submitOrder hits the submit_order RPC, which atomically
+  // decrements inventory and inserts the order row in one transaction.
+  // The function is SECURITY DEFINER so anon shoppers can call it.
+  const submitOrder = async (customerInfo) => {
+    const items = cart.map(c => ({
+      plantId: c.plantId,
+      plantName: c.plantName,
+      quantity: c.quantity,
+      unitPrice: c.unitPrice,
+    }));
+    const { data, error } = await supabase.rpc("submit_order", {
+      p_customer_name:  customerInfo.customerName,
+      p_customer_email: customerInfo.customerEmail,
+      p_customer_phone: customerInfo.customerPhone,
+      p_notes:          customerInfo.notes || "",
+      p_items:          items,
     });
-    const newOrder = { id: "ord-" + genId(), ...customerInfo, status: "pending", items: cart.map(c => ({ ...c })), createdAt: new Date().toISOString() };
-    savePlants(updatedPlants); saveOrders([newOrder, ...orders]); setCart([]);
+    if (error) {
+      console.error("[supabase] submit_order failed:", error);
+      showToast("Order failed: " + (error.message || "unknown error"), "error");
+      return null;
+    }
+    const newOrder = rowToOrder(Array.isArray(data) ? data[0] : data);
+    // Mirror the server-side stock decrement in local state so the shop view
+    // reflects the new availability without a round-trip.
+    setPlants(curr => curr.map(p => {
+      const it = items.find(i => i.plantId === p.id);
+      return it ? { ...p, quantity: Math.max(0, p.quantity - it.quantity) } : p;
+    }));
+    // If an admin happens to be logged in, add the order to their local list.
+    setOrders(prev => [newOrder, ...prev]);
+    setCart([]);
     showToast("Order submitted! A confirmation email would be sent in production.");
     return newOrder;
   };
@@ -312,7 +367,13 @@ function ShopView({ plants, cart, updateCartQty, removeFromCart, submitOrder, sh
   const cartCount = cart.reduce((s, c) => s + c.quantity, 0);
   const cartTotal = cart.reduce((s, c) => s + c.quantity * c.unitPrice, 0);
 
-  const handleCheckout = (info) => { const order = submitOrder(info); setCheckoutOpen(false); setCartOpen(false); setOrderConfirm(order); };
+  const handleCheckout = async (info) => {
+    const order = await submitOrder(info);
+    if (!order) return; // error toast already shown
+    setCheckoutOpen(false);
+    setCartOpen(false);
+    setOrderConfirm(order);
+  };
   const getCartQty = (plantId) => { const item = cart.find(c => c.plantId === plantId); return item ? item.quantity : ""; };
 
   const columns = [

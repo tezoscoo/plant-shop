@@ -96,6 +96,59 @@ create policy "admins_write_admin"
   with check (public.is_admin());
 
 -- ───────────────────────────────────────────────────────────────
+-- RPC: submit_order
+-- Atomically decrements plant stock and inserts a new order row.
+-- Runs as SECURITY DEFINER so anonymous shoppers can decrement plants
+-- without having direct write access to the plants table. Any failure
+-- (insufficient stock, missing plant) rolls back the whole transaction.
+-- ───────────────────────────────────────────────────────────────
+
+create or replace function public.submit_order(
+  p_customer_name  text,
+  p_customer_email text,
+  p_customer_phone text,
+  p_notes          text,
+  p_items          jsonb
+) returns public.orders
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  new_order public.orders;
+  item      jsonb;
+  new_id    text := 'ord-' || substr(md5(random()::text || clock_timestamp()::text), 1, 10);
+begin
+  if p_customer_name is null or length(trim(p_customer_name)) = 0 then
+    raise exception 'customer name required';
+  end if;
+  if p_items is null or jsonb_array_length(p_items) = 0 then
+    raise exception 'order must contain at least one item';
+  end if;
+
+  -- Decrement stock for each line item, failing if any line is short.
+  for item in select * from jsonb_array_elements(p_items) loop
+    update public.plants
+       set quantity   = quantity - (item->>'quantity')::int,
+           updated_at = now()
+     where id = item->>'plantId'
+       and quantity >= (item->>'quantity')::int;
+    if not found then
+      raise exception 'insufficient stock for plant %', item->>'plantId';
+    end if;
+  end loop;
+
+  insert into public.orders (id, customer_name, customer_email, customer_phone, notes, status, items)
+  values (new_id, p_customer_name, p_customer_email, p_customer_phone, coalesce(p_notes, ''), 'pending', p_items)
+  returning * into new_order;
+
+  return new_order;
+end;
+$$;
+
+grant execute on function public.submit_order(text, text, text, text, jsonb) to anon, authenticated;
+
+-- ───────────────────────────────────────────────────────────────
 -- SEED DATA
 -- ───────────────────────────────────────────────────────────────
 
