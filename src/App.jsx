@@ -246,11 +246,17 @@ export default function App() {
       quantity: c.quantity,
       unitPrice: c.unitPrice,
     }));
+    let notes = customerInfo.notes || "";
+    if (customerInfo.discount) {
+      const d = customerInfo.discount;
+      const discountNote = `[Discount: ${d.label} => -${fmt(d.amount)}]`;
+      notes = notes ? `${notes}\n${discountNote}` : discountNote;
+    }
     const { data, error } = await supabase.rpc("submit_order", {
       p_customer_name:  customerInfo.customerName,
       p_customer_email: customerInfo.customerEmail,
       p_customer_phone: customerInfo.customerPhone,
-      p_notes:          customerInfo.notes || "",
+      p_notes:          notes,
       p_items:          items,
     });
     if (error) {
@@ -408,6 +414,17 @@ function ShopView({ plants, cart, updateCartQty, removeFromCart, submitOrder, sh
     padding: "7px 10px", fontSize: 13, borderBottom: "1px solid #e8e4dc",
     borderRight: "1px solid #f0ede6", verticalAlign: "top",
   };
+
+  if (cartOpen && !orderConfirm) {
+    return (
+      <div>
+        <CartPage cart={cart} plants={plants} cartTotal={cartTotal} updateCartQty={updateCartQty} removeFromCart={removeFromCart}
+          onClose={() => setCartOpen(false)}
+          onCheckout={() => { if (cart.length > 0) setCheckoutOpen(true); else showToast("Cart is empty", "error"); }} />
+        {checkoutOpen && <CheckoutModal cart={cart} cartTotal={cartTotal} onSubmit={handleCheckout} onClose={() => setCheckoutOpen(false)} />}
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -596,8 +613,6 @@ function ShopView({ plants, cart, updateCartQty, removeFromCart, submitOrder, sh
         )}
       </div>
 
-      {cartOpen && <CartDrawer cart={cart} plants={plants} cartTotal={cartTotal} updateCartQty={updateCartQty} removeFromCart={removeFromCart} onClose={() => setCartOpen(false)}
-        onCheckout={() => { if (cart.length > 0) setCheckoutOpen(true); else showToast("Cart is empty", "error"); }} />}
       {checkoutOpen && <CheckoutModal cart={cart} cartTotal={cartTotal} onSubmit={handleCheckout} onClose={() => setCheckoutOpen(false)} />}
       {orderConfirm && <OrderConfirmModal order={orderConfirm} onClose={() => setOrderConfirm(null)} />}
     </div>
@@ -660,10 +675,135 @@ function CartDrawer({ cart, plants, cartTotal, updateCartQty, removeFromCart, on
   );
 }
 
+function CartPage({ cart, plants, cartTotal, updateCartQty, removeFromCart, onClose, onCheckout }) {
+  return (
+    <div>
+      <header style={{
+        background: "linear-gradient(135deg, #4a6741 0%, #5c7a52 50%, #6b8c5e 100%)",
+        color: "#fff", position: "sticky", top: 0, zIndex: 100,
+        boxShadow: "0 2px 20px rgba(74,103,65,.3)",
+      }}>
+        <div style={{ maxWidth: 1400, margin: "0 auto", padding: "14px 24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <button onClick={onClose} style={{ color: "#fff", display: "flex", alignItems: "center", gap: 8, fontSize: 14, fontWeight: 500 }}>
+            <Icon name="arrowLeft" size={20} /> Back to Shop
+          </button>
+          <div style={{ textAlign: "right" }}>
+            <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 20, fontWeight: 600, lineHeight: 1.1 }}>Your Order</div>
+            <div style={{ fontSize: 10, opacity: .75, letterSpacing: 2, textTransform: "uppercase" }}>
+              {cart.length} item{cart.length !== 1 ? "s" : ""} in cart
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <div style={{ maxWidth: 1400, margin: "0 auto", padding: "24px" }}>
+        {cart.length === 0 ? (
+          <div style={{ textAlign: "center", padding: 60, color: "#999" }}>
+            <Icon name="cart" size={48} />
+            <p style={{ marginTop: 16, fontSize: 16 }}>Your cart is empty</p>
+            <button onClick={onClose} style={{
+              marginTop: 20, padding: "10px 24px", background: "#4a6741", color: "#fff",
+              borderRadius: 8, fontSize: 14, fontWeight: 600,
+            }}>Continue Shopping</button>
+          </div>
+        ) : (
+          <div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {cart.map(item => {
+                const plant = plants.find(p => p.id === item.plantId);
+                const maxQ = plant ? plant.quantity + item.quantity : 99;
+                return (
+                  <div key={item.plantId} style={{
+                    background: "#fff", borderRadius: 10, border: "1px solid #e8e4dc",
+                    padding: "16px 20px", display: "flex", alignItems: "center", gap: 16,
+                    boxShadow: "0 1px 4px rgba(0,0,0,.04)", flexWrap: "wrap",
+                  }}>
+                    <div style={{ flex: 1, minWidth: 180 }}>
+                      <div style={{ fontWeight: 600, fontSize: 15 }}>{item.plantName}</div>
+                      <div style={{ color: "#888", fontSize: 13, marginTop: 2 }}>
+                        {item.size ? `${item.size} \u00b7 ` : ""}{fmt(item.unitPrice)} ea
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <button onClick={() => updateCartQty(item.plantId, item.quantity - 1)} style={{
+                        width: 32, height: 32, borderRadius: 6, background: "#f0f0f0",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                      }}><Icon name="minus" size={14} /></button>
+                      <span style={{ fontWeight: 700, fontSize: 16, minWidth: 28, textAlign: "center" }}>{item.quantity}</span>
+                      <button onClick={() => updateCartQty(item.plantId, Math.min(item.quantity + 1, maxQ))} style={{
+                        width: 32, height: 32, borderRadius: 6, background: "#f0f0f0",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                      }}><Icon name="plus" size={14} /></button>
+                    </div>
+                    <div style={{ fontWeight: 700, fontSize: 16, minWidth: 80, textAlign: "right" }}>
+                      {fmt(item.quantity * item.unitPrice)}
+                    </div>
+                    <button onClick={() => removeFromCart(item.plantId)} style={{ color: "#c0392b", padding: 4 }}>
+                      <Icon name="trash" size={18} />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div style={{
+              marginTop: 24, background: "#fff", borderRadius: 10, border: "1px solid #e8e4dc",
+              padding: "20px 24px", display: "flex", alignItems: "center", justifyContent: "space-between",
+              flexWrap: "wrap", gap: 12,
+            }}>
+              <div style={{ fontSize: 20, fontWeight: 700, fontFamily: "'Playfair Display', serif" }}>
+                Subtotal: <span style={{ color: "#4a6741" }}>{fmt(cartTotal)}</span>
+              </div>
+              <button onClick={onCheckout} style={{
+                padding: "12px 32px", background: "#4a6741", color: "#fff",
+                borderRadius: 10, fontSize: 15, fontWeight: 600,
+              }}>Proceed to Checkout</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const DISCOUNT_CODES = {
+  WHOLESALE10: { type: "percent", value: 10, label: "10% off (WHOLESALE10)" },
+  FIRST20: { type: "percent", value: 20, label: "20% off (FIRST20)" },
+  PARK5: { type: "flat", value: 5, label: "$5 off (PARK5)" },
+};
+
 function CheckoutModal({ cart, cartTotal, onSubmit, onClose }) {
   const [form, setForm] = useState({ customerName: "", customerEmail: "", customerPhone: "", notes: "" });
   const [submitting, setSubmitting] = useState(false);
-  const handle = () => { if (!form.customerName || !form.customerEmail || !form.customerPhone) return; setSubmitting(true); onSubmit(form); setSubmitting(false); };
+  const [discountCode, setDiscountCode] = useState("");
+  const [discountApplied, setDiscountApplied] = useState(null); // { code, type, value, label }
+  const [discountError, setDiscountError] = useState("");
+
+  const discountAmount = discountApplied
+    ? discountApplied.type === "percent"
+      ? cartTotal * (discountApplied.value / 100)
+      : Math.min(discountApplied.value, cartTotal)
+    : 0;
+  const finalTotal = Math.max(0, cartTotal - discountAmount);
+
+  const applyDiscount = () => {
+    const key = discountCode.trim().toUpperCase();
+    const match = DISCOUNT_CODES[key];
+    if (!match) { setDiscountError("Invalid discount code"); setDiscountApplied(null); return; }
+    setDiscountApplied({ code: key, ...match });
+    setDiscountError("");
+  };
+  const removeDiscount = () => { setDiscountApplied(null); setDiscountCode(""); setDiscountError(""); };
+
+  const handle = () => {
+    if (!form.customerName || !form.customerEmail || !form.customerPhone) return;
+    setSubmitting(true);
+    onSubmit({
+      ...form,
+      discount: discountApplied ? { code: discountApplied.code, label: discountApplied.label, amount: discountAmount } : null,
+    });
+    setSubmitting(false);
+  };
   const inp = { width: "100%", padding: "10px 14px", border: "1px solid #ddd", borderRadius: 8, fontSize: 14, background: "#fafaf8", outline: "none" };
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
@@ -671,12 +811,50 @@ function CheckoutModal({ cart, cartTotal, onSubmit, onClose }) {
       <div style={{ position: "relative", background: "#fff", borderRadius: 16, maxWidth: 480, width: "100%", maxHeight: "90vh", overflow: "auto", padding: 32, animation: "fadeUp .3s ease" }}>
         <button onClick={onClose} style={{ position: "absolute", top: 16, right: 16, color: "#999" }}><Icon name="x" size={22} /></button>
         <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 24, marginBottom: 4 }}>Place Order</h2>
-        <p style={{ color: "#888", fontSize: 13, marginBottom: 20 }}>{cart.length} item{cart.length !== 1 ? "s" : ""} · {fmt(cartTotal)} total</p>
+        <p style={{ color: "#888", fontSize: 13, marginBottom: 20 }}>{cart.length} item{cart.length !== 1 ? "s" : ""} · {fmt(cartTotal)} subtotal</p>
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <div><label style={{ fontSize: 12, fontWeight: 600, color: "#666", marginBottom: 4, display: "block" }}>Name *</label><input value={form.customerName} onChange={e => setForm({ ...form, customerName: e.target.value })} style={inp} placeholder="Your name or business" /></div>
           <div><label style={{ fontSize: 12, fontWeight: 600, color: "#666", marginBottom: 4, display: "block" }}>Email *</label><input type="email" value={form.customerEmail} onChange={e => setForm({ ...form, customerEmail: e.target.value })} style={inp} placeholder="email@example.com" /></div>
           <div><label style={{ fontSize: 12, fontWeight: 600, color: "#666", marginBottom: 4, display: "block" }}>Phone *</label><input value={form.customerPhone} onChange={e => setForm({ ...form, customerPhone: e.target.value })} style={inp} placeholder="(555) 555-0100" /></div>
           <div><label style={{ fontSize: 12, fontWeight: 600, color: "#666", marginBottom: 4, display: "block" }}>Notes (optional)</label><textarea value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} style={{ ...inp, height: 70, resize: "vertical" }} placeholder="Pickup time, special requests..." /></div>
+
+          {/* Discount code */}
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: "#666", marginBottom: 4, display: "block" }}>Discount Code</label>
+            {discountApplied ? (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: "#e8f5e3", borderRadius: 8, border: "1px solid #a7c957" }}>
+                <Icon name="check" size={16} />
+                <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: "#2d6a4f" }}>{discountApplied.label}</span>
+                <button onClick={removeDiscount} style={{ color: "#888", fontSize: 12, textDecoration: "underline" }}>Remove</button>
+              </div>
+            ) : (
+              <div style={{ display: "flex", gap: 8 }}>
+                <input value={discountCode} onChange={e => { setDiscountCode(e.target.value); setDiscountError(""); }}
+                  onKeyDown={e => { if (e.key === "Enter") applyDiscount(); }}
+                  style={{ ...inp, flex: 1 }} placeholder="Enter code" />
+                <button onClick={applyDiscount} style={{
+                  padding: "10px 16px", background: "#f0ede6", borderRadius: 8, fontSize: 13, fontWeight: 600, color: "#4a6741", border: "1px solid #ddd", whiteSpace: "nowrap",
+                }}>Apply</button>
+              </div>
+            )}
+            {discountError && <div style={{ fontSize: 12, color: "#c0392b", marginTop: 4 }}>{discountError}</div>}
+          </div>
+
+          {/* Order summary */}
+          <div style={{ background: "#f7f5f0", borderRadius: 8, padding: "12px 14px", fontSize: 13 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+              <span>Subtotal</span><span>{fmt(cartTotal)}</span>
+            </div>
+            {discountApplied && (
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4, color: "#27ae60" }}>
+                <span>Discount ({discountApplied.label})</span><span>-{fmt(discountAmount)}</span>
+              </div>
+            )}
+            <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 700, fontSize: 16, borderTop: "1px solid #ddd", paddingTop: 6, marginTop: 4 }}>
+              <span>Total</span><span style={{ color: "#4a6741" }}>{fmt(finalTotal)}</span>
+            </div>
+          </div>
+
           <button onClick={handle} disabled={submitting || !form.customerName || !form.customerEmail || !form.customerPhone}
             style={{ width: "100%", padding: 14, marginTop: 4, background: (!form.customerName || !form.customerEmail || !form.customerPhone) ? "#ccc" : "#4a6741", color: "#fff", borderRadius: 10, fontSize: 15, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
             <Icon name="mail" size={18} /> {submitting ? "Submitting..." : "Submit Order"}</button>
@@ -875,11 +1053,13 @@ function InventoryTab({ plants, savePlants, showToast }) {
 function OrdersTab({ orders, saveOrders, plants, savePlants, showToast }) {
   const [filter, setFilter] = useState("all");
   const filtered = filter === "all" ? orders : orders.filter(o => o.status === filter);
-  const updateStatus = (orderId, newStatus) => {
+  const updateStatus = async (orderId, newStatus) => {
     const order = orders.find(o => o.id === orderId);
-    if (newStatus === "cancelled" && order && order.status !== "cancelled") savePlants(plants.map(p => { const item = order.items.find(i => i.plantId === p.id); return item ? { ...p, quantity: p.quantity + item.quantity } : p; }));
-    saveOrders(orders.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
-    showToast(`Order ${newStatus}`);
+    if (newStatus === "cancelled" && order && order.status !== "cancelled") {
+      await savePlants(plants.map(p => { const item = order.items.find(i => i.plantId === p.id); return item ? { ...p, quantity: p.quantity + item.quantity } : p; }));
+    }
+    await saveOrders(orders.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
+    showToast(`Order ${orderId} \u2192 ${newStatus}`);
   };
   const sc = { pending: { bg: "#fef9e7", text: "#e67e22", border: "#f4d03f" }, confirmed: { bg: "#e8f8f5", text: "#1abc9c", border: "#76d7c4" }, fulfilled: { bg: "#e8f5e3", text: "#27ae60", border: "#82e0aa" }, cancelled: { bg: "#fdedec", text: "#c0392b", border: "#f5b7b1" } };
   return (
