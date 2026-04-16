@@ -265,7 +265,14 @@ export default function App() {
     // If an admin happens to be logged in, add the order to their local list.
     setOrders(prev => [newOrder, ...prev]);
     setCart([]);
-    showToast("Order submitted! A confirmation email would be sent in production.");
+    showToast("Order submitted! Confirmation email on its way.");
+    // Fire-and-forget: send confirmation + admin notification emails.
+    // Failure here never blocks the order — it's already persisted in the DB.
+    fetch("/api/send-order-email", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ order: newOrder }),
+    }).catch((e) => console.warn("[email] send-order-email call failed:", e));
     return newOrder;
   };
 
