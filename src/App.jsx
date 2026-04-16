@@ -138,10 +138,11 @@ export default function App() {
     return () => { cancelled = true; };
   }, []);
 
-  // Orders are admin-only (RLS blocks anon reads). Load them when a session
-  // appears; clear them when the admin signs out.
+  // Orders are admin-only (RLS blocks anon reads). Fetch when a session is
+  // present. Don't clear orders when session is null — that's handled by the
+  // explicit signOut handler — so token refreshes don't wipe local state.
   useEffect(() => {
-    if (!session) { setOrders([]); return; }
+    if (!session) return;
     let cancelled = false;
     (async () => {
       const { data, error } = await supabase
@@ -216,6 +217,7 @@ export default function App() {
 
   const signOut = useCallback(async () => {
     await supabase.auth.signOut();
+    setOrders([]);
     showToast("Signed out");
   }, [showToast]);
 
@@ -227,7 +229,7 @@ export default function App() {
     setCart(prev => {
       const existing = prev.find(c => c.plantId === plantId);
       if (existing) return prev.map(c => c.plantId === plantId ? { ...c, quantity: clampedQty } : c);
-      return [...prev, { plantId: plant.id, plantName: `${plant.name}${plant.variety ? ' - ' + plant.variety : ''}`, quantity: clampedQty, unitPrice: plant.price }];
+      return [...prev, { plantId: plant.id, plantName: `${plant.name}${plant.variety ? ' - ' + plant.variety : ''}`, size: plant.size || "", quantity: clampedQty, unitPrice: plant.price }];
     });
   };
 
@@ -240,6 +242,7 @@ export default function App() {
     const items = cart.map(c => ({
       plantId: c.plantId,
       plantName: c.plantName,
+      size: c.size || "",
       quantity: c.quantity,
       unitPrice: c.unitPrice,
     }));
@@ -695,7 +698,7 @@ function OrderConfirmModal({ order, onClose }) {
         <div style={{ background: "#f7f5f0", borderRadius: 10, padding: 16, textAlign: "left", marginBottom: 20 }}>
           {order.items.map(item => (
             <div key={item.plantId} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 14 }}>
-              <span>{item.plantName} × {item.quantity}</span><span style={{ fontWeight: 600 }}>{fmt(item.quantity * item.unitPrice)}</span>
+              <span>{item.plantName}{item.size ? ` (${item.size})` : ""} × {item.quantity}</span><span style={{ fontWeight: 600 }}>{fmt(item.quantity * item.unitPrice)}</span>
             </div>
           ))}
           <div style={{ borderTop: "1px solid #ddd", marginTop: 8, paddingTop: 8, display: "flex", justifyContent: "space-between", fontWeight: 700, fontSize: 16 }}>
@@ -907,7 +910,7 @@ function OrdersTab({ orders, saveOrders, plants, savePlants, showToast }) {
               <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #f0f0f0" }}>
                 {order.items.map(item => (
                   <div key={item.plantId} style={{ display: "flex", justifyContent: "space-between", padding: "2px 0", fontSize: 13 }}>
-                    <span>{item.plantName} <span style={{ color: "#999" }}>× {item.quantity}</span></span><span style={{ fontWeight: 600 }}>{fmt(item.quantity * item.unitPrice)}</span>
+                    <span>{item.plantName}{item.size ? <span style={{ color: "#999", fontSize: 12 }}> ({item.size})</span> : ""} <span style={{ color: "#999" }}>× {item.quantity}</span></span><span style={{ fontWeight: 600 }}>{fmt(item.quantity * item.unitPrice)}</span>
                   </div>
                 ))}
                 <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 6, marginTop: 6, borderTop: "1px solid #f0f0f0", fontWeight: 700, fontSize: 15 }}><span>Total</span><span style={{ color: "#4a6741" }}>{fmt(total)}</span></div>

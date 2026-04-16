@@ -41,6 +41,7 @@ export default async function handler(req, res) {
       (i) => `
       <tr>
         <td style="padding:8px 12px;border-bottom:1px solid #eee;font-size:14px">${i.plantName}</td>
+        <td style="padding:8px 12px;border-bottom:1px solid #eee;font-size:13px;color:#666">${i.size || "—"}</td>
         <td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:center;font-size:14px">${i.quantity}</td>
         <td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:right;font-size:14px">${fmt(i.unitPrice)}</td>
         <td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:right;font-size:14px;font-weight:600">${fmt(i.quantity * i.unitPrice)}</td>
@@ -53,6 +54,7 @@ export default async function handler(req, res) {
       <thead>
         <tr style="background:#f7f5f0">
           <th style="padding:8px 12px;text-align:left;font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px">Item</th>
+          <th style="padding:8px 12px;text-align:left;font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px">Size</th>
           <th style="padding:8px 12px;text-align:center;font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px">Qty</th>
           <th style="padding:8px 12px;text-align:right;font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px">Price</th>
           <th style="padding:8px 12px;text-align:right;font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px">Total</th>
@@ -61,7 +63,7 @@ export default async function handler(req, res) {
       <tbody>${itemRows}</tbody>
       <tfoot>
         <tr>
-          <td colspan="3" style="padding:10px 12px;text-align:right;font-weight:700;font-size:15px;border-top:2px solid #ddd">Total</td>
+          <td colspan="4" style="padding:10px 12px;text-align:right;font-weight:700;font-size:15px;border-top:2px solid #ddd">Total</td>
           <td style="padding:10px 12px;text-align:right;font-weight:700;font-size:15px;color:#4a6741;border-top:2px solid #ddd">${fmt(total)}</td>
         </tr>
       </tfoot>
