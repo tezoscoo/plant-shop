@@ -41,7 +41,7 @@ export default async function handler(req, res) {
       (i) => `
       <tr>
         <td style="padding:8px 12px;border-bottom:1px solid #eee;font-size:14px">${i.plantName}</td>
-        <td style="padding:8px 12px;border-bottom:1px solid #eee;font-size:13px;color:#666">${i.size || "—"}</td>
+        <td style="padding:8px 12px;border-bottom:1px solid #eee;font-size:13px;color:#666">${i.size || "\u2014"}</td>
         <td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:center;font-size:14px">${i.quantity}</td>
         <td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:right;font-size:14px">${fmt(i.unitPrice)}</td>
         <td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:right;font-size:14px;font-weight:600">${fmt(i.quantity * i.unitPrice)}</td>
@@ -69,73 +69,78 @@ export default async function handler(req, res) {
       </tfoot>
     </table>`;
 
-  const errors = [];
+  const results = [];
 
   // ── 1. Customer confirmation ─────────────────────────────────────
   if (order.customerEmail) {
-    try {
-      await resend.emails.send({
-        from,
-        to: order.customerEmail,
-        subject: `Order Confirmed — ${order.id}`,
-        html: `
-          <div style="font-family:'Helvetica Neue',Arial,sans-serif;max-width:600px;margin:0 auto;color:#2c2c2c">
-            <div style="background:linear-gradient(135deg,#4a6741,#6b8c5e);padding:24px 28px;border-radius:10px 10px 0 0">
-              <h1 style="margin:0;color:#fff;font-size:22px">Park Greenhouse</h1>
-              <p style="margin:4px 0 0;color:rgba(255,255,255,.75);font-size:12px;letter-spacing:1px;text-transform:uppercase">Order Confirmation</p>
+    const { data, error } = await resend.emails.send({
+      from,
+      to: order.customerEmail,
+      subject: `Order Confirmed — ${order.id}`,
+      html: `
+        <div style="font-family:'Helvetica Neue',Arial,sans-serif;max-width:600px;margin:0 auto;color:#2c2c2c">
+          <div style="background:linear-gradient(135deg,#4a6741,#6b8c5e);padding:24px 28px;border-radius:10px 10px 0 0">
+            <h1 style="margin:0;color:#fff;font-size:22px">Park Greenhouse</h1>
+            <p style="margin:4px 0 0;color:rgba(255,255,255,.75);font-size:12px;letter-spacing:1px;text-transform:uppercase">Order Confirmation</p>
+          </div>
+          <div style="background:#fff;padding:24px 28px;border:1px solid #e8e4dc;border-top:none;border-radius:0 0 10px 10px">
+            <p style="font-size:15px;line-height:1.6">Hi <strong>${order.customerName}</strong>,</p>
+            <p style="font-size:14px;line-height:1.6;color:#555">Thank you for your order! Here's a summary. No payment is collected online — we'll be in touch to arrange pickup.</p>
+            <div style="background:#f7f5f0;border-radius:8px;padding:12px 16px;margin:16px 0">
+              <p style="margin:0;font-size:13px;color:#666"><strong>Order ID:</strong> ${order.id}</p>
+              <p style="margin:4px 0 0;font-size:13px;color:#666"><strong>Date:</strong> ${new Date(order.createdAt).toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}</p>
+              ${order.notes ? `<p style="margin:4px 0 0;font-size:13px;color:#666"><strong>Notes:</strong> ${order.notes}</p>` : ""}
             </div>
-            <div style="background:#fff;padding:24px 28px;border:1px solid #e8e4dc;border-top:none;border-radius:0 0 10px 10px">
-              <p style="font-size:15px;line-height:1.6">Hi <strong>${order.customerName}</strong>,</p>
-              <p style="font-size:14px;line-height:1.6;color:#555">Thank you for your order! Here's a summary. No payment is collected online — we'll be in touch to arrange pickup.</p>
-              <div style="background:#f7f5f0;border-radius:8px;padding:12px 16px;margin:16px 0">
-                <p style="margin:0;font-size:13px;color:#666"><strong>Order ID:</strong> ${order.id}</p>
-                <p style="margin:4px 0 0;font-size:13px;color:#666"><strong>Date:</strong> ${new Date(order.createdAt).toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}</p>
-                ${order.notes ? `<p style="margin:4px 0 0;font-size:13px;color:#666"><strong>Notes:</strong> ${order.notes}</p>` : ""}
-              </div>
-              ${orderTable}
-              <p style="font-size:13px;color:#888;margin-top:20px;line-height:1.5">If you have questions, reply to this email or call us directly.</p>
-              <p style="font-size:13px;color:#888;line-height:1.5">— Park Greenhouse</p>
-            </div>
-          </div>`,
-      });
-    } catch (e) {
-      console.error("[email] customer confirmation failed:", e);
-      errors.push("customer: " + (e.message || "unknown"));
+            ${orderTable}
+            <p style="font-size:13px;color:#888;margin-top:20px;line-height:1.5">If you have questions, reply to this email or call us directly.</p>
+            <p style="font-size:13px;color:#888;line-height:1.5">&mdash; Park Greenhouse</p>
+          </div>
+        </div>`,
+    });
+    if (error) {
+      console.error("[email] customer confirmation failed:", JSON.stringify(error));
+      results.push({ to: "customer", ok: false, error: error.message || JSON.stringify(error) });
+    } else {
+      results.push({ to: "customer", ok: true, id: data?.id });
     }
   }
 
   // ── 2. Admin notification ────────────────────────────────────────
   if (adminEmail) {
-    try {
-      await resend.emails.send({
-        from,
-        to: adminEmail,
-        subject: `New Order: ${order.customerName} — ${fmt(total)}`,
-        html: `
-          <div style="font-family:'Helvetica Neue',Arial,sans-serif;max-width:600px;margin:0 auto;color:#2c2c2c">
-            <div style="background:#2c2c2c;padding:20px 28px;border-radius:10px 10px 0 0">
-              <h1 style="margin:0;color:#fff;font-size:18px">New Order Received</h1>
+    const { data, error } = await resend.emails.send({
+      from,
+      to: adminEmail,
+      subject: `New Order: ${order.customerName} — ${fmt(total)}`,
+      html: `
+        <div style="font-family:'Helvetica Neue',Arial,sans-serif;max-width:600px;margin:0 auto;color:#2c2c2c">
+          <div style="background:#2c2c2c;padding:20px 28px;border-radius:10px 10px 0 0">
+            <h1 style="margin:0;color:#fff;font-size:18px">New Order Received</h1>
+          </div>
+          <div style="background:#fff;padding:24px 28px;border:1px solid #e8e4dc;border-top:none;border-radius:0 0 10px 10px">
+            <div style="background:#f7f5f0;border-radius:8px;padding:12px 16px;margin-bottom:16px">
+              <p style="margin:0;font-size:14px"><strong>${order.customerName}</strong></p>
+              <p style="margin:4px 0 0;font-size:13px;color:#666">${order.customerEmail || "\u2014"} &middot; ${order.customerPhone || "\u2014"}</p>
+              <p style="margin:4px 0 0;font-size:12px;color:#888">Order ${order.id} &middot; ${new Date(order.createdAt).toLocaleString()}</p>
+              ${order.notes ? `<p style="margin:6px 0 0;font-size:13px;color:#555;font-style:italic">"${order.notes}"</p>` : ""}
             </div>
-            <div style="background:#fff;padding:24px 28px;border:1px solid #e8e4dc;border-top:none;border-radius:0 0 10px 10px">
-              <div style="background:#f7f5f0;border-radius:8px;padding:12px 16px;margin-bottom:16px">
-                <p style="margin:0;font-size:14px"><strong>${order.customerName}</strong></p>
-                <p style="margin:4px 0 0;font-size:13px;color:#666">${order.customerEmail || "—"} &middot; ${order.customerPhone || "—"}</p>
-                <p style="margin:4px 0 0;font-size:12px;color:#888">Order ${order.id} &middot; ${new Date(order.createdAt).toLocaleString()}</p>
-                ${order.notes ? `<p style="margin:6px 0 0;font-size:13px;color:#555;font-style:italic">"${order.notes}"</p>` : ""}
-              </div>
-              ${orderTable}
-              <p style="font-size:13px;color:#888;margin-top:16px">Log in to the <a href="https://park-greenhouse.vercel.app/" style="color:#4a6741">admin dashboard</a> to manage this order.</p>
-            </div>
-          </div>`,
-      });
-    } catch (e) {
-      console.error("[email] admin notification failed:", e);
-      errors.push("admin: " + (e.message || "unknown"));
+            ${orderTable}
+            <p style="font-size:13px;color:#888;margin-top:16px">Log in to the <a href="https://park-greenhouse.vercel.app/" style="color:#4a6741">admin dashboard</a> to manage this order.</p>
+          </div>
+        </div>`,
+    });
+    if (error) {
+      console.error("[email] admin notification failed:", JSON.stringify(error));
+      results.push({ to: "admin", ok: false, error: error.message || JSON.stringify(error) });
+    } else {
+      results.push({ to: "admin", ok: true, id: data?.id });
     }
   }
 
-  if (errors.length > 0) {
-    return res.status(207).json({ sent: true, errors });
-  }
-  return res.status(200).json({ sent: true });
+  const anyFailed = results.some((r) => !r.ok);
+  return res.status(anyFailed ? 207 : 200).json({
+    sent: !anyFailed,
+    from,
+    adminEmail: adminEmail || "(not set)",
+    results,
+  });
 }
