@@ -32,7 +32,10 @@ export default async function handler(req, res) {
   const adminEmail = ADMIN_NOTIFY_EMAIL || null;
 
   const items = order.items || [];
-  const total = items.reduce((s, i) => s + i.quantity * i.unitPrice, 0);
+  const subtotal = items.reduce((s, i) => s + i.quantity * i.unitPrice, 0);
+  const discount = order._discount || null; // { code, label, amount }
+  const discountAmount = discount ? discount.amount : 0;
+  const total = Math.max(0, subtotal - discountAmount);
   const fmt = (n) => "$" + Number(n).toFixed(2);
 
   // ── Shared HTML helpers ──────────────────────────────────────────
@@ -62,6 +65,16 @@ export default async function handler(req, res) {
       </thead>
       <tbody>${itemRows}</tbody>
       <tfoot>
+        ${discount ? `
+        <tr>
+          <td colspan="4" style="padding:6px 12px;text-align:right;font-size:13px;border-top:1px solid #ddd">Subtotal</td>
+          <td style="padding:6px 12px;text-align:right;font-size:13px;border-top:1px solid #ddd">${fmt(subtotal)}</td>
+        </tr>
+        <tr>
+          <td colspan="4" style="padding:6px 12px;text-align:right;font-size:13px;color:#27ae60">Discount (${discount.label})</td>
+          <td style="padding:6px 12px;text-align:right;font-size:13px;color:#27ae60">-${fmt(discountAmount)}</td>
+        </tr>
+        ` : ""}
         <tr>
           <td colspan="4" style="padding:10px 12px;text-align:right;font-weight:700;font-size:15px;border-top:2px solid #ddd">Total</td>
           <td style="padding:10px 12px;text-align:right;font-weight:700;font-size:15px;color:#4a6741;border-top:2px solid #ddd">${fmt(total)}</td>

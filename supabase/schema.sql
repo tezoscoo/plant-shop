@@ -77,6 +77,7 @@ create policy "plants_write_admin"
 drop policy if exists "orders_insert_all"  on public.orders;
 drop policy if exists "orders_read_admin"  on public.orders;
 drop policy if exists "orders_update_admin" on public.orders;
+drop policy if exists "orders_delete_admin" on public.orders;
 create policy "orders_insert_all"
   on public.orders for insert
   with check (true);
@@ -87,6 +88,9 @@ create policy "orders_update_admin"
   on public.orders for update
   using (public.is_admin())
   with check (public.is_admin());
+create policy "orders_delete_admin"
+  on public.orders for delete
+  using (public.is_admin());
 
 -- ADMINS: only admins can read/write this table.
 drop policy if exists "admins_read_admin"  on public.admins;

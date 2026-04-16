@@ -215,6 +215,20 @@ export default function App() {
     }
   }, [showToast]);
 
+  const deleteOrder = useCallback(async (orderId) => {
+    let prev = [];
+    setOrders(curr => { prev = curr; return curr.filter(o => o.id !== orderId); });
+    try {
+      const { error } = await supabase.from("orders").delete().eq("id", orderId);
+      if (error) throw error;
+      showToast(`Order ${orderId} deleted`);
+    } catch (err) {
+      console.error("[supabase] order delete failed:", err);
+      setOrders(prev);
+      showToast("Delete failed: " + (err.message || "unknown error"), "error");
+    }
+  }, [showToast]);
+
   const signOut = useCallback(async () => {
     await supabase.auth.signOut();
     setOrders([]);
@@ -246,10 +260,10 @@ export default function App() {
       quantity: c.quantity,
       unitPrice: c.unitPrice,
     }));
+    const discount = customerInfo.discount || null;
     let notes = customerInfo.notes || "";
-    if (customerInfo.discount) {
-      const d = customerInfo.discount;
-      const discountNote = `[Discount: ${d.label} => -${fmt(d.amount)}]`;
+    if (discount) {
+      const discountNote = `[Discount: ${discount.label} => -${fmt(discount.amount)}]`;
       notes = notes ? `${notes}\n${discountNote}` : discountNote;
     }
     const { data, error } = await supabase.rpc("submit_order", {
@@ -265,6 +279,8 @@ export default function App() {
       return null;
     }
     const newOrder = rowToOrder(Array.isArray(data) ? data[0] : data);
+    // Attach discount info for the email (not stored in DB, just passed through)
+    if (discount) newOrder._discount = discount;
     // Mirror the server-side stock decrement in local state so the shop view
     // reflects the new availability without a round-trip.
     setPlants(curr => curr.map(p => {
@@ -321,7 +337,7 @@ export default function App() {
         <ShopView plants={plants} cart={cart} updateCartQty={updateCartQty} removeFromCart={removeFromCart} submitOrder={submitOrder} showToast={showToast} onGoAdmin={() => setView("admin")} />
       ) : (
         session ? (
-          <AdminView plants={plants} orders={orders} savePlants={savePlants} saveOrders={saveOrders} showToast={showToast} onGoShop={() => setView("shop")} onSignOut={signOut} session={session} />
+          <AdminView plants={plants} orders={orders} savePlants={savePlants} saveOrders={saveOrders} deleteOrder={deleteOrder} showToast={showToast} onGoShop={() => setView("shop")} onSignOut={signOut} session={session} />
         ) : (
           <AdminLogin onGoShop={() => setView("shop")} showToast={showToast} />
         )
@@ -941,7 +957,7 @@ function AdminLogin({ onGoShop, showToast }) {
 // ═══════════════════════════════════════════
 // ─── ADMIN VIEW ───────────────────────────
 // ═══════════════════════════════════════════
-function AdminView({ plants, orders, savePlants, saveOrders, showToast, onGoShop, onSignOut, session }) {
+function AdminView({ plants, orders, savePlants, saveOrders, deleteOrder, showToast, onGoShop, onSignOut, session }) {
   const [tab, setTab] = useState("inventory");
   const headerRef = useRef(null);
   usePageHeaderHeight(headerRef);
@@ -974,7 +990,7 @@ function AdminView({ plants, orders, savePlants, saveOrders, showToast, onGoShop
       </header>
       <div style={{ maxWidth: 1400, margin: "0 auto", padding: "24px" }}>
         {tab === "inventory" && <InventoryTab plants={plants} savePlants={savePlants} showToast={showToast} />}
-        {tab === "orders" && <OrdersTab orders={orders} saveOrders={saveOrders} plants={plants} savePlants={savePlants} showToast={showToast} />}
+        {tab === "orders" && <OrdersTab orders={orders} saveOrders={saveOrders} deleteOrder={deleteOrder} plants={plants} savePlants={savePlants} showToast={showToast} />}
         {tab === "upload" && <UploadTab plants={plants} savePlants={savePlants} showToast={showToast} />}
       </div>
     </div>
@@ -1050,7 +1066,7 @@ function InventoryTab({ plants, savePlants, showToast }) {
   );
 }
 
-function OrdersTab({ orders, saveOrders, plants, savePlants, showToast }) {
+function OrdersTab({ orders, saveOrders, deleteOrder, plants, savePlants, showToast }) {
   const [filter, setFilter] = useState("all");
   const filtered = filter === "all" ? orders : orders.filter(o => o.status === filter);
   const updateStatus = async (orderId, newStatus) => {
@@ -1095,13 +1111,19 @@ function OrdersTab({ orders, saveOrders, plants, savePlants, showToast }) {
                 ))}
                 <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 6, marginTop: 6, borderTop: "1px solid #f0f0f0", fontWeight: 700, fontSize: 15 }}><span>Total</span><span style={{ color: "#4a6741" }}>{fmt(total)}</span></div>
               </div>
-              {order.status !== "fulfilled" && order.status !== "cancelled" && (
-                <div style={{ marginTop: 12, display: "flex", gap: 6 }}>
-                  {order.status === "pending" && <button onClick={() => updateStatus(order.id, "confirmed")} style={{ padding: "6px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600, background: "#1abc9c", color: "#fff" }}>Confirm</button>}
-                  {(order.status === "pending" || order.status === "confirmed") && <button onClick={() => updateStatus(order.id, "fulfilled")} style={{ padding: "6px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600, background: "#4a6741", color: "#fff" }}>Mark Fulfilled</button>}
+              <div style={{ marginTop: 12, display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {order.status === "pending" && <button onClick={() => updateStatus(order.id, "confirmed")} style={{ padding: "6px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600, background: "#1abc9c", color: "#fff" }}>Confirm</button>}
+                {(order.status === "pending" || order.status === "confirmed") && <button onClick={() => updateStatus(order.id, "fulfilled")} style={{ padding: "6px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600, background: "#4a6741", color: "#fff" }}>Mark Fulfilled</button>}
+                {order.status !== "cancelled" && order.status !== "fulfilled" && (
                   <button onClick={() => updateStatus(order.id, "cancelled")} style={{ padding: "6px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600, background: "#fff", color: "#c0392b", border: "1px solid #c0392b" }}>Cancel</button>
-                </div>
-              )}
+                )}
+                {(order.status === "confirmed" || order.status === "fulfilled" || order.status === "cancelled") && (
+                  <button onClick={() => { if (window.confirm(`Delete order ${order.id}? This cannot be undone.`)) deleteOrder(order.id); }}
+                    style={{ padding: "6px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600, background: "#fff", color: "#888", border: "1px solid #ddd", display: "flex", alignItems: "center", gap: 4 }}>
+                    <Icon name="trash" size={12} /> Delete
+                  </button>
+                )}
+              </div>
             </div>
           );
         })}
