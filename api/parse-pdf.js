@@ -79,7 +79,7 @@ export default async function handler(req, res) {
   let message;
   try {
     message = await client.messages.create({
-      model: "claude-opus-4-5",
+      model: "claude-sonnet-4-5",
       max_tokens: 4096,
       messages: [
         {
