@@ -113,6 +113,7 @@ export default function App() {
   const [view, setView] = useState("shop");
   const [plants, setPlants] = useState([]);
   const [orders, setOrders] = useState([]);
+  const ordersRef = useRef([]);  // mirror of orders for use inside async callbacks
   const [cart, setCart] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState(null);
@@ -192,28 +193,28 @@ export default function App() {
     }
   }, [showToast]);
 
-  // Phase 3: orders live in Supabase. The only app-driven write is a status
-  // change from the admin Orders tab; diff the new array against current state
-  // and push each changed row. Optimistic + rollback on failure.
-  const saveOrders = useCallback(async (next) => {
-    let prev = [];
-    setOrders(curr => { prev = curr; return next; });
-    const prevMap = new Map(prev.map(o => [o.id, o]));
-    const changed = next.filter(o => {
-      const p = prevMap.get(o.id);
-      return p && p.status !== o.status;
-    });
-    try {
-      for (const o of changed) {
-        const { error } = await supabase.from("orders").update({ status: o.status }).eq("id", o.id);
-        if (error) throw error;
-      }
-    } catch (err) {
-      console.error("[supabase] orders write failed:", err);
+  // Keep ref in sync so async callbacks always see current orders
+  useEffect(() => { ordersRef.current = orders; }, [orders]);
+
+  // Targeted order status update — avoids the diff-on-full-array pattern
+  // which had a React 18 batching bug (functional updater runs async so the
+  // captured prev was always []). This writes directly to Supabase and rolls
+  // back local state on failure.
+  const updateOrderStatus = useCallback(async (orderId, newStatus) => {
+    const prev = ordersRef.current;
+    setOrders(prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
+    const { error } = await supabase.from("orders").update({ status: newStatus }).eq("id", orderId);
+    if (error) {
+      console.error("[supabase] order status update failed:", error);
       setOrders(prev);
-      showToast("Save failed: " + (err.message || "unknown error"), "error");
+      showToast("Save failed: " + (error.message || "unknown error"), "error");
+      return false;
     }
+    return true;
   }, [showToast]);
+
+  // saveOrders kept for the new-order prepend path; no longer used for status changes
+  const saveOrders = useCallback((next) => { setOrders(next); }, []);
 
   const deleteOrder = useCallback(async (orderId) => {
     let prev = [];
@@ -337,7 +338,7 @@ export default function App() {
         <ShopView plants={plants} cart={cart} updateCartQty={updateCartQty} removeFromCart={removeFromCart} submitOrder={submitOrder} showToast={showToast} onGoAdmin={() => setView("admin")} />
       ) : (
         session ? (
-          <AdminView plants={plants} orders={orders} savePlants={savePlants} saveOrders={saveOrders} deleteOrder={deleteOrder} showToast={showToast} onGoShop={() => setView("shop")} onSignOut={signOut} session={session} />
+          <AdminView plants={plants} orders={orders} savePlants={savePlants} saveOrders={saveOrders} updateOrderStatus={updateOrderStatus} deleteOrder={deleteOrder} showToast={showToast} onGoShop={() => setView("shop")} onSignOut={signOut} session={session} />
         ) : (
           <AdminLogin onGoShop={() => setView("shop")} showToast={showToast} />
         )
@@ -957,7 +958,7 @@ function AdminLogin({ onGoShop, showToast }) {
 // ═══════════════════════════════════════════
 // ─── ADMIN VIEW ───────────────────────────
 // ═══════════════════════════════════════════
-function AdminView({ plants, orders, savePlants, saveOrders, deleteOrder, showToast, onGoShop, onSignOut, session }) {
+function AdminView({ plants, orders, savePlants, saveOrders, updateOrderStatus, deleteOrder, showToast, onGoShop, onSignOut, session }) {
   const [tab, setTab] = useState("inventory");
   const headerRef = useRef(null);
   usePageHeaderHeight(headerRef);
@@ -990,7 +991,7 @@ function AdminView({ plants, orders, savePlants, saveOrders, deleteOrder, showTo
       </header>
       <div style={{ maxWidth: 1400, margin: "0 auto", padding: "24px" }}>
         {tab === "inventory" && <InventoryTab plants={plants} savePlants={savePlants} showToast={showToast} />}
-        {tab === "orders" && <OrdersTab orders={orders} saveOrders={saveOrders} deleteOrder={deleteOrder} plants={plants} savePlants={savePlants} showToast={showToast} />}
+        {tab === "orders" && <OrdersTab orders={orders} updateOrderStatus={updateOrderStatus} deleteOrder={deleteOrder} plants={plants} savePlants={savePlants} showToast={showToast} />}
         {tab === "upload" && <UploadTab plants={plants} savePlants={savePlants} showToast={showToast} />}
       </div>
     </div>
@@ -1066,40 +1067,39 @@ function InventoryTab({ plants, savePlants, showToast }) {
   );
 }
 
-function OrdersTab({ orders, saveOrders, deleteOrder, plants, savePlants, showToast }) {
+function OrdersTab({ orders, updateOrderStatus, deleteOrder, plants, savePlants, showToast }) {
   const [filter, setFilter] = useState("all");
   const filtered = filter === "all" ? orders : orders.filter(o => o.status === filter);
-  // Valid forward-only transitions. A status can never move backward.
+
+  // Valid forward-only transitions — status can never move backward.
   const ALLOWED = {
     pending:   ["confirmed", "fulfilled", "cancelled"],
     confirmed: ["fulfilled", "cancelled"],
-    fulfilled: [],   // terminal — no further changes
-    cancelled: [],   // terminal — no further changes
+    fulfilled: [],
+    cancelled: [],
   };
 
   const updateStatus = async (orderId, newStatus) => {
     const order = orders.find(o => o.id === orderId);
     if (!order) return;
 
-    // Guard against invalid / backward transitions
     const allowed = ALLOWED[order.status] || [];
     if (!allowed.includes(newStatus)) {
       showToast(`Cannot change ${order.status} → ${newStatus}`, "error");
       return;
     }
 
-    // Restock inventory first when cancelling — only proceed to status update if it succeeds
+    // Restock inventory before marking cancelled
     if (newStatus === "cancelled") {
       const restocked = plants.map(p => {
         const item = order.items.find(i => i.plantId === p.id);
         return item ? { ...p, quantity: p.quantity + item.quantity } : p;
       });
       await savePlants(restocked);
-      // savePlants rolls back and shows a toast on failure, so check local state
     }
 
-    await saveOrders(orders.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
-    showToast(`Order marked ${newStatus}`);
+    const ok = await updateOrderStatus(orderId, newStatus);
+    if (ok) showToast(`Order marked ${newStatus}`);
   };
   const sc = { pending: { bg: "#fef9e7", text: "#e67e22", border: "#f4d03f" }, confirmed: { bg: "#e8f8f5", text: "#1abc9c", border: "#76d7c4" }, fulfilled: { bg: "#e8f5e3", text: "#27ae60", border: "#82e0aa" }, cancelled: { bg: "#fdedec", text: "#c0392b", border: "#f5b7b1" } };
   return (
