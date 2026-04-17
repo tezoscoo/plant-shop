@@ -1364,6 +1364,74 @@ function OrdersTab({ orders, updateOrderStatus, updateOrderItems, deleteOrder, d
 }
 
 function UploadTab({ plants, savePlants, showToast }) {
+  // ── PDF / AI parse state ──────────────────────────────────────
+  const [pdfParsing, setPdfParsing] = useState(false);
+  const [pdfPreview, setPdfPreview] = useState(null);
+  const [pdfMode, setPdfMode] = useState("merge");
+  const pdfFileRef = useRef();
+
+  const handlePdfFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const maxBytes = 9 * 1024 * 1024; // 9 MB (base64 ~33% overhead → ~12 MB raw limit in API)
+    if (file.size > maxBytes) {
+      showToast("File too large — please use a PDF under 9 MB", "error");
+      return;
+    }
+    setPdfParsing(true);
+    setPdfPreview(null);
+    try {
+      // Read as base64
+      const arrayBuffer = await file.arrayBuffer();
+      const bytes = new Uint8Array(arrayBuffer);
+      let binary = "";
+      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+      const fileData = btoa(binary);
+      const mediaType = file.type || (file.name.endsWith(".pdf") ? "application/pdf" : "image/jpeg");
+
+      const resp = await fetch("/api/parse-pdf", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fileData, mediaType, fileName: file.name }),
+      });
+      const json = await resp.json();
+      if (!resp.ok) throw new Error(json.error || "Parse failed");
+      if (!json.plants || json.plants.length === 0) {
+        showToast("No plant data found in that file — check the format", "error");
+        return;
+      }
+      setPdfPreview(json.plants);
+      showToast(`AI found ${json.plants.length} plant${json.plants.length !== 1 ? "s" : ""} in ${file.name}`);
+    } catch (err) {
+      showToast("Error: " + err.message, "error");
+    } finally {
+      setPdfParsing(false);
+    }
+  };
+
+  const applyPdfPreview = () => {
+    if (!pdfPreview) return;
+    let updated;
+    if (pdfMode === "replace") {
+      updated = pdfPreview.map(p => ({ ...p, id: genId() }));
+    } else {
+      updated = [...plants];
+      pdfPreview.forEach(incoming => {
+        const idx = updated.findIndex(
+          p => p.name.toLowerCase() === incoming.name.toLowerCase() &&
+               (p.variety || "").toLowerCase() === (incoming.variety || "").toLowerCase()
+        );
+        if (idx >= 0) updated[idx] = { ...updated[idx], ...incoming };
+        else updated.push({ ...incoming, id: genId() });
+      });
+    }
+    savePlants(updated);
+    setPdfPreview(null);
+    if (pdfFileRef.current) pdfFileRef.current.value = "";
+    showToast(`Inventory updated: ${updated.length} plants`);
+  };
+
+  // ── CSV / XLSX state ──────────────────────────────────────────
   const [preview, setPreview] = useState(null);
   const [mode, setMode] = useState("merge");
   const fileRef = useRef();
@@ -1391,8 +1459,70 @@ function UploadTab({ plants, savePlants, showToast }) {
   const downloadXLSX = () => { const ws = XLSX.utils.json_to_sheet(plants.map(p => ({ Name: p.name, "Color / Variety": p.variety || "", Category: p.category, Size: p.size, Price: p.price, Quantity: p.quantity, "Pack Size": p.packSize, Comments: p.comments }))); const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Inventory"); XLSX.writeFile(wb, `plant-inventory-${new Date().toISOString().slice(0, 10)}.xlsx`); };
   const cellStyle = { padding: "6px 8px", fontSize: 11, borderBottom: "1px solid #f0ede6" };
   const thStyle = { ...cellStyle, fontWeight: 600, fontSize: 10, color: "#888", background: "#faf8f4", textTransform: "uppercase", letterSpacing: 1 };
+
   return (
     <div>
+      {/* ── AI PDF / Image Parse ── */}
+      <div style={{ background: "#fff", borderRadius: 10, border: "1px solid #e8e4dc", padding: 20, marginBottom: 16 }}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 12 }}>
+          <div style={{ fontSize: 28, lineHeight: 1 }}>🤖</div>
+          <div>
+            <h3 style={{ fontFamily: "'Playfair Display', serif", fontSize: 18, margin: "0 0 2px" }}>AI Inventory Parser</h3>
+            <p style={{ color: "#888", fontSize: 12, margin: 0 }}>Upload a PDF or photo of a price list or order form — typed or handwritten — and Claude will extract the plant data automatically.</p>
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
+          <input ref={pdfFileRef} type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" onChange={handlePdfFile}
+            disabled={pdfParsing} style={{ fontSize: 12 }} />
+          <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12 }}>
+            <input type="radio" name="pdfMode" checked={pdfMode === "merge"} onChange={() => setPdfMode("merge")} /> Merge
+          </label>
+          <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12 }}>
+            <input type="radio" name="pdfMode" checked={pdfMode === "replace"} onChange={() => setPdfMode("replace")} /> Replace
+          </label>
+        </div>
+        {pdfMode === "replace" && (
+          <p style={{ fontSize: 11, color: "#c0392b", background: "#fdedec", padding: "6px 10px", borderRadius: 5, marginBottom: 10 }}>Replace mode removes ALL existing plants.</p>
+        )}
+        {pdfParsing && (
+          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 0", color: "#4a6741", fontSize: 13 }}>
+            <span style={{ display: "inline-block", width: 18, height: 18, border: "2px solid #4a6741", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+            Analyzing with Claude AI — this may take 10–20 seconds…
+          </div>
+        )}
+        {pdfPreview && !pdfParsing && (
+          <div>
+            <h4 style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>AI Preview ({pdfPreview.length} plants found)</h4>
+            <div style={{ maxHeight: 250, overflow: "auto", borderRadius: 6, border: "1px solid #e8e4dc" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 500 }}>
+                <thead><tr>{["Name", "Variety", "Category", "Size", "Price", "Qty", "Pack", "Comments"].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
+                <tbody>{pdfPreview.slice(0, 50).map((p, i) => (
+                  <tr key={i}>
+                    <td style={{ ...cellStyle, fontWeight: 600 }}>{p.name}</td>
+                    <td style={{ ...cellStyle, fontStyle: "italic" }}>{p.variety}</td>
+                    <td style={cellStyle}>{p.category}</td>
+                    <td style={cellStyle}>{p.size}</td>
+                    <td style={{ ...cellStyle, textAlign: "right" }}>{fmt(p.price)}</td>
+                    <td style={{ ...cellStyle, textAlign: "right" }}>{p.quantity}</td>
+                    <td style={{ ...cellStyle, textAlign: "right" }}>{p.packSize}</td>
+                    <td style={{ ...cellStyle, color: "#888" }}>{p.comments}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            </div>
+            <p style={{ fontSize: 11, color: "#888", marginTop: 6 }}>Review the data above — if anything looks wrong, cancel and try a clearer scan.</p>
+            <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
+              <button onClick={applyPdfPreview} style={{ padding: "8px 20px", background: "#4a6741", color: "#fff", borderRadius: 6, fontSize: 13, fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}>
+                <Icon name="check" size={14} /> Apply to Inventory
+              </button>
+              <button onClick={() => { setPdfPreview(null); if (pdfFileRef.current) pdfFileRef.current.value = ""; }}
+                style={{ padding: "8px 20px", background: "#fff", color: "#666", borderRadius: 6, fontSize: 13, border: "1px solid #ddd" }}>Cancel</button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── CSV / XLSX Upload ── */}
       <div style={{ background: "#fff", borderRadius: 10, border: "1px solid #e8e4dc", padding: 20, marginBottom: 16 }}>
         <h3 style={{ fontFamily: "'Playfair Display', serif", fontSize: 18, marginBottom: 4 }}>Upload Inventory</h3>
         <p style={{ color: "#888", fontSize: 12, marginBottom: 14 }}>Upload a CSV or XLSX. Expected columns: Name, Color/Variety, Category, Size, Price, Quantity, Pack Size, Comments.</p>
