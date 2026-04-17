@@ -1069,13 +1069,37 @@ function InventoryTab({ plants, savePlants, showToast }) {
 function OrdersTab({ orders, saveOrders, deleteOrder, plants, savePlants, showToast }) {
   const [filter, setFilter] = useState("all");
   const filtered = filter === "all" ? orders : orders.filter(o => o.status === filter);
+  // Valid forward-only transitions. A status can never move backward.
+  const ALLOWED = {
+    pending:   ["confirmed", "fulfilled", "cancelled"],
+    confirmed: ["fulfilled", "cancelled"],
+    fulfilled: [],   // terminal — no further changes
+    cancelled: [],   // terminal — no further changes
+  };
+
   const updateStatus = async (orderId, newStatus) => {
     const order = orders.find(o => o.id === orderId);
-    if (newStatus === "cancelled" && order && order.status !== "cancelled") {
-      await savePlants(plants.map(p => { const item = order.items.find(i => i.plantId === p.id); return item ? { ...p, quantity: p.quantity + item.quantity } : p; }));
+    if (!order) return;
+
+    // Guard against invalid / backward transitions
+    const allowed = ALLOWED[order.status] || [];
+    if (!allowed.includes(newStatus)) {
+      showToast(`Cannot change ${order.status} → ${newStatus}`, "error");
+      return;
     }
+
+    // Restock inventory first when cancelling — only proceed to status update if it succeeds
+    if (newStatus === "cancelled") {
+      const restocked = plants.map(p => {
+        const item = order.items.find(i => i.plantId === p.id);
+        return item ? { ...p, quantity: p.quantity + item.quantity } : p;
+      });
+      await savePlants(restocked);
+      // savePlants rolls back and shows a toast on failure, so check local state
+    }
+
     await saveOrders(orders.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
-    showToast(`Order ${orderId} \u2192 ${newStatus}`);
+    showToast(`Order marked ${newStatus}`);
   };
   const sc = { pending: { bg: "#fef9e7", text: "#e67e22", border: "#f4d03f" }, confirmed: { bg: "#e8f8f5", text: "#1abc9c", border: "#76d7c4" }, fulfilled: { bg: "#e8f5e3", text: "#27ae60", border: "#82e0aa" }, cancelled: { bg: "#fdedec", text: "#c0392b", border: "#f5b7b1" } };
   return (
@@ -1112,12 +1136,21 @@ function OrdersTab({ orders, saveOrders, deleteOrder, plants, savePlants, showTo
                 <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 6, marginTop: 6, borderTop: "1px solid #f0f0f0", fontWeight: 700, fontSize: 15 }}><span>Total</span><span style={{ color: "#4a6741" }}>{fmt(total)}</span></div>
               </div>
               <div style={{ marginTop: 12, display: "flex", gap: 6, flexWrap: "wrap" }}>
-                {order.status === "pending" && <button onClick={() => updateStatus(order.id, "confirmed")} style={{ padding: "6px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600, background: "#1abc9c", color: "#fff" }}>Confirm</button>}
-                {(order.status === "pending" || order.status === "confirmed") && <button onClick={() => updateStatus(order.id, "fulfilled")} style={{ padding: "6px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600, background: "#4a6741", color: "#fff" }}>Mark Fulfilled</button>}
-                {order.status !== "cancelled" && order.status !== "fulfilled" && (
-                  <button onClick={() => updateStatus(order.id, "cancelled")} style={{ padding: "6px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600, background: "#fff", color: "#c0392b", border: "1px solid #c0392b" }}>Cancel</button>
+                {/* Confirm: only from pending */}
+                {order.status === "pending" && (
+                  <button onClick={() => updateStatus(order.id, "confirmed")} style={{ padding: "6px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600, background: "#1abc9c", color: "#fff" }}>Confirm</button>
                 )}
-                {(order.status === "confirmed" || order.status === "fulfilled" || order.status === "cancelled") && (
+                {/* Mark Fulfilled: from pending or confirmed only */}
+                {(order.status === "pending" || order.status === "confirmed") && (
+                  <button onClick={() => updateStatus(order.id, "fulfilled")} style={{ padding: "6px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600, background: "#4a6741", color: "#fff" }}>Mark Fulfilled</button>
+                )}
+                {/* Cancel: from pending or confirmed only (not fulfilled) */}
+                {(order.status === "pending" || order.status === "confirmed") && (
+                  <button onClick={() => { if (window.confirm(`Cancel order ${order.id}? Items will be added back to inventory.`)) updateStatus(order.id, "cancelled"); }}
+                    style={{ padding: "6px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600, background: "#fff", color: "#c0392b", border: "1px solid #c0392b" }}>Cancel</button>
+                )}
+                {/* Delete: only on terminal statuses */}
+                {(order.status === "fulfilled" || order.status === "cancelled") && (
                   <button onClick={() => { if (window.confirm(`Delete order ${order.id}? This cannot be undone.`)) deleteOrder(order.id); }}
                     style={{ padding: "6px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600, background: "#fff", color: "#888", border: "1px solid #ddd", display: "flex", alignItems: "center", gap: 4 }}>
                     <Icon name="trash" size={12} /> Delete
