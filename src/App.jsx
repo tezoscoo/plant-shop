@@ -230,6 +230,72 @@ export default function App() {
     }
   }, [showToast]);
 
+  // Update the items array of an existing order. Diffs old vs new quantities
+  // to adjust inventory, then writes the new items JSONB to Supabase and sends
+  // a fresh confirmation email to the customer.
+  const plantsRef = useRef([]);
+  useEffect(() => { plantsRef.current = plants; }, [plants]);
+
+  const updateOrderItems = useCallback(async (order, newItems) => {
+    const oldItems = order.items || [];
+    // Build inventory diff: positive diff = more ordered = subtract from stock
+    const oldMap = new Map(oldItems.map(i => [i.plantId, i.quantity]));
+    const newMap = new Map(newItems.map(i => [i.plantId, i.quantity]));
+    const allIds = new Set([...oldMap.keys(), ...newMap.keys()]);
+    const updatedPlants = plantsRef.current.map(p => {
+      if (!allIds.has(p.id)) return p;
+      const diff = (newMap.get(p.id) || 0) - (oldMap.get(p.id) || 0);
+      return { ...p, quantity: Math.max(0, p.quantity - diff) };
+    });
+    await savePlants(updatedPlants);
+
+    const { error } = await supabase.from("orders").update({ items: newItems }).eq("id", order.id);
+    if (error) {
+      console.error("[supabase] order items update failed:", error);
+      showToast("Save failed: " + (error.message || "unknown error"), "error");
+      // Roll back plant changes
+      await savePlants(plantsRef.current);
+      return false;
+    }
+    // Update local orders state
+    const updatedOrder = { ...order, items: newItems };
+    setOrders(prev => prev.map(o => o.id === order.id ? updatedOrder : o));
+    // Send updated confirmation email
+    fetch("/api/send-order-email", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ order: updatedOrder }),
+    }).catch(e => console.warn("[email] send-order-email failed:", e));
+    showToast("Order updated — confirmation email sent");
+    return true;
+  }, [savePlants, showToast]);
+
+  // Bulk-delete all orders of a given status. Restocks inventory for pending
+  // and confirmed orders (items were decremented when placed but never fulfilled).
+  // Cancelled orders are already restocked; fulfilled orders ship as-is.
+  const deleteOrdersByStatus = useCallback(async (status) => {
+    const toDelete = ordersRef.current.filter(o => o.status === status);
+    if (toDelete.length === 0) return;
+    if (status === "pending" || status === "confirmed") {
+      const adds = {};
+      toDelete.forEach(order => order.items.forEach(i => {
+        adds[i.plantId] = (adds[i.plantId] || 0) + i.quantity;
+      }));
+      const restocked = plantsRef.current.map(p =>
+        adds[p.id] ? { ...p, quantity: p.quantity + adds[p.id] } : p
+      );
+      await savePlants(restocked);
+    }
+    const ids = toDelete.map(o => o.id);
+    const { error } = await supabase.from("orders").delete().in("id", ids);
+    if (error) {
+      showToast("Delete failed: " + (error.message || "unknown error"), "error");
+      return;
+    }
+    setOrders(prev => prev.filter(o => o.status !== status));
+    showToast(`Deleted ${toDelete.length} ${status} order${toDelete.length !== 1 ? "s" : ""}`);
+  }, [savePlants, showToast]);
+
   const signOut = useCallback(async () => {
     await supabase.auth.signOut();
     setOrders([]);
@@ -338,7 +404,7 @@ export default function App() {
         <ShopView plants={plants} cart={cart} updateCartQty={updateCartQty} removeFromCart={removeFromCart} submitOrder={submitOrder} showToast={showToast} onGoAdmin={() => setView("admin")} />
       ) : (
         session ? (
-          <AdminView plants={plants} orders={orders} savePlants={savePlants} saveOrders={saveOrders} updateOrderStatus={updateOrderStatus} deleteOrder={deleteOrder} showToast={showToast} onGoShop={() => setView("shop")} onSignOut={signOut} session={session} />
+          <AdminView plants={plants} orders={orders} savePlants={savePlants} saveOrders={saveOrders} updateOrderStatus={updateOrderStatus} updateOrderItems={updateOrderItems} deleteOrder={deleteOrder} deleteOrdersByStatus={deleteOrdersByStatus} showToast={showToast} onGoShop={() => setView("shop")} onSignOut={signOut} session={session} />
         ) : (
           <AdminLogin onGoShop={() => setView("shop")} showToast={showToast} />
         )
@@ -958,7 +1024,7 @@ function AdminLogin({ onGoShop, showToast }) {
 // ═══════════════════════════════════════════
 // ─── ADMIN VIEW ───────────────────────────
 // ═══════════════════════════════════════════
-function AdminView({ plants, orders, savePlants, saveOrders, updateOrderStatus, deleteOrder, showToast, onGoShop, onSignOut, session }) {
+function AdminView({ plants, orders, savePlants, saveOrders, updateOrderStatus, updateOrderItems, deleteOrder, deleteOrdersByStatus, showToast, onGoShop, onSignOut, session }) {
   const [tab, setTab] = useState("inventory");
   const headerRef = useRef(null);
   usePageHeaderHeight(headerRef);
@@ -991,7 +1057,7 @@ function AdminView({ plants, orders, savePlants, saveOrders, updateOrderStatus, 
       </header>
       <div style={{ maxWidth: 1400, margin: "0 auto", padding: "24px" }}>
         {tab === "inventory" && <InventoryTab plants={plants} savePlants={savePlants} showToast={showToast} />}
-        {tab === "orders" && <OrdersTab orders={orders} updateOrderStatus={updateOrderStatus} deleteOrder={deleteOrder} plants={plants} savePlants={savePlants} showToast={showToast} />}
+        {tab === "orders" && <OrdersTab orders={orders} updateOrderStatus={updateOrderStatus} updateOrderItems={updateOrderItems} deleteOrder={deleteOrder} deleteOrdersByStatus={deleteOrdersByStatus} plants={plants} savePlants={savePlants} showToast={showToast} />}
         {tab === "upload" && <UploadTab plants={plants} savePlants={savePlants} showToast={showToast} />}
       </div>
     </div>
@@ -1067,11 +1133,16 @@ function InventoryTab({ plants, savePlants, showToast }) {
   );
 }
 
-function OrdersTab({ orders, updateOrderStatus, deleteOrder, plants, savePlants, showToast }) {
+function OrdersTab({ orders, updateOrderStatus, updateOrderItems, deleteOrder, deleteOrdersByStatus, plants, savePlants, showToast }) {
   const [filter, setFilter] = useState("all");
+  const [editingId, setEditingId] = useState(null);   // order.id currently being edited
+  const [editItems, setEditItems] = useState([]);       // working copy of items in edit mode
+  const [addPlantId, setAddPlantId] = useState("");     // plant selector for "add item" row
+  const [addQty, setAddQty] = useState(1);
+  const [saving, setSaving] = useState(false);
+
   const filtered = filter === "all" ? orders : orders.filter(o => o.status === filter);
 
-  // Valid forward-only transitions — status can never move backward.
   const ALLOWED = {
     pending:   ["confirmed", "fulfilled", "cancelled"],
     confirmed: ["fulfilled", "cancelled"],
@@ -1082,14 +1153,11 @@ function OrdersTab({ orders, updateOrderStatus, deleteOrder, plants, savePlants,
   const updateStatus = async (orderId, newStatus) => {
     const order = orders.find(o => o.id === orderId);
     if (!order) return;
-
     const allowed = ALLOWED[order.status] || [];
     if (!allowed.includes(newStatus)) {
       showToast(`Cannot change ${order.status} → ${newStatus}`, "error");
       return;
     }
-
-    // Restock inventory before marking cancelled
     if (newStatus === "cancelled") {
       const restocked = plants.map(p => {
         const item = order.items.find(i => i.plantId === p.id);
@@ -1097,24 +1165,96 @@ function OrdersTab({ orders, updateOrderStatus, deleteOrder, plants, savePlants,
       });
       await savePlants(restocked);
     }
-
     const ok = await updateOrderStatus(orderId, newStatus);
     if (ok) showToast(`Order marked ${newStatus}`);
   };
+
+  // ── Edit helpers ──────────────────────────────────────────────
+  const startEdit = (order) => {
+    setEditingId(order.id);
+    setEditItems(order.items.map(i => ({ ...i })));
+    setAddPlantId("");
+    setAddQty(1);
+  };
+  const cancelEdit = () => { setEditingId(null); setEditItems([]); };
+
+  const changeQty = (plantId, val) => {
+    const q = Math.max(0, parseInt(val, 10) || 0);
+    setEditItems(prev => prev.map(i => i.plantId === plantId ? { ...i, quantity: q } : i));
+  };
+  const removeItem = (plantId) => setEditItems(prev => prev.filter(i => i.plantId !== plantId));
+
+  const addItem = () => {
+    if (!addPlantId) return;
+    if (editItems.find(i => i.plantId === addPlantId)) {
+      changeQty(addPlantId, editItems.find(i => i.plantId === addPlantId).quantity + addQty);
+      setAddPlantId(""); setAddQty(1); return;
+    }
+    const plant = plants.find(p => p.id === addPlantId);
+    if (!plant) return;
+    setEditItems(prev => [...prev, { plantId: plant.id, plantName: plant.name, size: plant.size || "", unitPrice: plant.price, quantity: addQty }]);
+    setAddPlantId(""); setAddQty(1);
+  };
+
+  const saveEdit = async (order) => {
+    const validItems = editItems.filter(i => i.quantity > 0);
+    if (validItems.length === 0) { showToast("Order must have at least one item", "error"); return; }
+    setSaving(true);
+    await updateOrderItems(order, validItems);
+    setSaving(false);
+    setEditingId(null);
+    setEditItems([]);
+  };
+
+  // ── Bulk delete ───────────────────────────────────────────────
+  const bulkDelete = (status) => {
+    const count = orders.filter(o => o.status === status).length;
+    if (count === 0) { showToast(`No ${status} orders to delete`, "error"); return; }
+    const restock = status === "pending" || status === "confirmed";
+    const msg = `Delete all ${count} ${status} order${count !== 1 ? "s" : ""}?` +
+      (restock ? "\n\nInventory will be restocked for these orders." : "");
+    if (window.confirm(msg)) deleteOrdersByStatus(status);
+  };
+
   const sc = { pending: { bg: "#fef9e7", text: "#e67e22", border: "#f4d03f" }, confirmed: { bg: "#e8f8f5", text: "#1abc9c", border: "#76d7c4" }, fulfilled: { bg: "#e8f5e3", text: "#27ae60", border: "#82e0aa" }, cancelled: { bg: "#fdedec", text: "#c0392b", border: "#f5b7b1" } };
+
+  // Plants still in stock (or already in the order) available to add
+  const addablePlants = plants.filter(p => p.quantity > 0 || editItems.find(i => i.plantId === p.id));
+
   return (
     <div>
-      <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
+      {/* ── Filter bar ── */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
         {["all", "pending", "confirmed", "fulfilled", "cancelled"].map(f => (
-          <button key={f} onClick={() => setFilter(f)} style={{ padding: "6px 14px", borderRadius: 16, fontSize: 12, fontWeight: 500, background: filter === f ? "#2c2c2c" : "#fff", color: filter === f ? "#fff" : "#666", border: `1px solid ${filter === f ? "#2c2c2c" : "#ddd"}`, textTransform: "capitalize" }}>{f} {f !== "all" && `(${orders.filter(o => o.status === f).length})`}</button>
+          <button key={f} onClick={() => setFilter(f)} style={{ padding: "6px 14px", borderRadius: 16, fontSize: 12, fontWeight: 500, background: filter === f ? "#2c2c2c" : "#fff", color: filter === f ? "#fff" : "#666", border: `1px solid ${filter === f ? "#2c2c2c" : "#ddd"}`, textTransform: "capitalize" }}>
+            {f} {f !== "all" && `(${orders.filter(o => o.status === f).length})`}
+          </button>
         ))}
       </div>
-      {filtered.length === 0 ? <div style={{ textAlign: "center", padding: 40, color: "#999" }}>No orders found.</div> :
-        filtered.map(order => {
-          const colors = sc[order.status] || sc.pending;
-          const total = order.items.reduce((s, i) => s + i.quantity * i.unitPrice, 0);
+
+      {/* ── Bulk-delete strip ── */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 18, flexWrap: "wrap" }}>
+        {["pending", "confirmed", "fulfilled", "cancelled"].map(s => {
+          const count = orders.filter(o => o.status === s).length;
           return (
-            <div key={order.id} style={{ background: "#fff", borderRadius: 10, border: "1px solid #e8e4dc", padding: 18, marginBottom: 10 }}>
+            <button key={s} disabled={count === 0} onClick={() => bulkDelete(s)}
+              style={{ padding: "5px 12px", borderRadius: 6, fontSize: 11, fontWeight: 600, background: count > 0 ? "#fdedec" : "#f7f7f7", color: count > 0 ? "#c0392b" : "#bbb", border: `1px solid ${count > 0 ? "#f5b7b1" : "#e8e8e8"}`, cursor: count > 0 ? "pointer" : "not-allowed", display: "flex", alignItems: "center", gap: 4 }}>
+              <Icon name="trash" size={11} /> Delete all {s} {count > 0 && `(${count})`}
+            </button>
+          );
+        })}
+      </div>
+
+      {filtered.length === 0
+        ? <div style={{ textAlign: "center", padding: 40, color: "#999" }}>No orders found.</div>
+        : filtered.map(order => {
+          const isEditing = editingId === order.id;
+          const colors = sc[order.status] || sc.pending;
+          const displayItems = isEditing ? editItems : order.items;
+          const total = displayItems.filter(i => i.quantity > 0).reduce((s, i) => s + i.quantity * i.unitPrice, 0);
+          return (
+            <div key={order.id} style={{ background: "#fff", borderRadius: 10, border: `1px solid ${isEditing ? "#4a6741" : "#e8e4dc"}`, padding: 18, marginBottom: 10, boxShadow: isEditing ? "0 0 0 2px #c8ddc3" : "none" }}>
+              {/* Header */}
               <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
                 <div>
                   <div style={{ fontSize: 10, color: "#999" }}>{order.id}</div>
@@ -1127,34 +1267,93 @@ function OrdersTab({ orders, updateOrderStatus, deleteOrder, plants, savePlants,
                   <div style={{ fontSize: 11, color: "#999", marginTop: 4 }}>{new Date(order.createdAt).toLocaleString()}</div>
                 </div>
               </div>
-              <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #f0f0f0" }}>
-                {order.items.map(item => (
-                  <div key={item.plantId} style={{ display: "flex", justifyContent: "space-between", padding: "2px 0", fontSize: 13 }}>
-                    <span>{item.plantName}{item.size ? <span style={{ color: "#999", fontSize: 12 }}> ({item.size})</span> : ""} <span style={{ color: "#999" }}>× {item.quantity}</span></span><span style={{ fontWeight: 600 }}>{fmt(item.quantity * item.unitPrice)}</span>
+
+              {/* Items — view mode */}
+              {!isEditing && (
+                <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #f0f0f0" }}>
+                  {order.items.map(item => (
+                    <div key={item.plantId} style={{ display: "flex", justifyContent: "space-between", padding: "2px 0", fontSize: 13 }}>
+                      <span>{item.plantName}{item.size ? <span style={{ color: "#999", fontSize: 12 }}> ({item.size})</span> : ""} <span style={{ color: "#999" }}>× {item.quantity}</span></span>
+                      <span style={{ fontWeight: 600 }}>{fmt(item.quantity * item.unitPrice)}</span>
+                    </div>
+                  ))}
+                  <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 6, marginTop: 6, borderTop: "1px solid #f0f0f0", fontWeight: 700, fontSize: 15 }}>
+                    <span>Total</span><span style={{ color: "#4a6741" }}>{fmt(total)}</span>
                   </div>
-                ))}
-                <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 6, marginTop: 6, borderTop: "1px solid #f0f0f0", fontWeight: 700, fontSize: 15 }}><span>Total</span><span style={{ color: "#4a6741" }}>{fmt(total)}</span></div>
-              </div>
+                </div>
+              )}
+
+              {/* Items — edit mode */}
+              {isEditing && (
+                <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #c8ddc3" }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "#4a6741", marginBottom: 8 }}>✏️ Editing items — inventory will adjust automatically</div>
+                  {editItems.map(item => (
+                    <div key={item.plantId} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0", fontSize: 13 }}>
+                      <span style={{ flex: 1 }}>{item.plantName}{item.size ? <span style={{ color: "#999", fontSize: 12 }}> ({item.size})</span> : ""}</span>
+                      <span style={{ color: "#888", fontSize: 12 }}>{fmt(item.unitPrice)} ea</span>
+                      <input type="number" min="0" value={item.quantity}
+                        onChange={e => changeQty(item.plantId, e.target.value)}
+                        style={{ width: 56, padding: "3px 6px", border: "1px solid #ccc", borderRadius: 4, fontSize: 13, textAlign: "center" }} />
+                      <button onClick={() => removeItem(item.plantId)}
+                        style={{ padding: "3px 7px", borderRadius: 4, fontSize: 11, background: "#fdedec", color: "#c0392b", border: "1px solid #f5b7b1", cursor: "pointer" }}>✕</button>
+                    </div>
+                  ))}
+                  {/* Add item row */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 10, paddingTop: 10, borderTop: "1px solid #eee" }}>
+                    <select value={addPlantId} onChange={e => setAddPlantId(e.target.value)}
+                      style={{ flex: 1, padding: "5px 8px", border: "1px solid #ccc", borderRadius: 4, fontSize: 12 }}>
+                      <option value="">+ Add plant…</option>
+                      {addablePlants.map(p => (
+                        <option key={p.id} value={p.id}>{p.name}{p.variety ? ` – ${p.variety}` : ""}{p.size ? ` (${p.size})` : ""} — {fmt(p.price)}</option>
+                      ))}
+                    </select>
+                    <input type="number" min="1" value={addQty} onChange={e => setAddQty(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                      style={{ width: 52, padding: "5px 6px", border: "1px solid #ccc", borderRadius: 4, fontSize: 13, textAlign: "center" }} />
+                    <button onClick={addItem} disabled={!addPlantId}
+                      style={{ padding: "5px 12px", borderRadius: 4, fontSize: 12, fontWeight: 600, background: addPlantId ? "#4a6741" : "#ccc", color: "#fff", border: "none", cursor: addPlantId ? "pointer" : "not-allowed" }}>Add</button>
+                  </div>
+                  {/* Edit total */}
+                  <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 8, marginTop: 8, borderTop: "1px solid #f0f0f0", fontWeight: 700, fontSize: 15 }}>
+                    <span>New Total</span><span style={{ color: "#4a6741" }}>{fmt(total)}</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Action buttons */}
               <div style={{ marginTop: 12, display: "flex", gap: 6, flexWrap: "wrap" }}>
-                {/* Confirm: only from pending */}
-                {order.status === "pending" && (
-                  <button onClick={() => updateStatus(order.id, "confirmed")} style={{ padding: "6px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600, background: "#1abc9c", color: "#fff" }}>Confirm</button>
+                {!isEditing && (
+                  <>
+                    {order.status === "pending" && (
+                      <button onClick={() => updateStatus(order.id, "confirmed")} style={{ padding: "6px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600, background: "#1abc9c", color: "#fff", border: "none" }}>Confirm</button>
+                    )}
+                    {(order.status === "pending" || order.status === "confirmed") && (
+                      <button onClick={() => updateStatus(order.id, "fulfilled")} style={{ padding: "6px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600, background: "#4a6741", color: "#fff", border: "none" }}>Mark Fulfilled</button>
+                    )}
+                    {(order.status === "pending" || order.status === "confirmed") && (
+                      <button onClick={() => { if (window.confirm(`Edit items for order ${order.id}?\n\nInventory will be adjusted and a new confirmation email will be sent.`)) startEdit(order); }}
+                        style={{ padding: "6px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600, background: "#fff", color: "#4a6741", border: "1px solid #4a6741" }}>✏️ Edit Items</button>
+                    )}
+                    {(order.status === "pending" || order.status === "confirmed") && (
+                      <button onClick={() => { if (window.confirm(`Cancel order ${order.id}?\n\nItems will be added back to inventory.`)) updateStatus(order.id, "cancelled"); }}
+                        style={{ padding: "6px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600, background: "#fff", color: "#c0392b", border: "1px solid #c0392b" }}>Cancel</button>
+                    )}
+                    {(order.status === "fulfilled" || order.status === "cancelled") && (
+                      <button onClick={() => { if (window.confirm(`Delete order ${order.id}? This cannot be undone.`)) deleteOrder(order.id); }}
+                        style={{ padding: "6px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600, background: "#fff", color: "#888", border: "1px solid #ddd", display: "flex", alignItems: "center", gap: 4 }}>
+                        <Icon name="trash" size={12} /> Delete
+                      </button>
+                    )}
+                  </>
                 )}
-                {/* Mark Fulfilled: from pending or confirmed only */}
-                {(order.status === "pending" || order.status === "confirmed") && (
-                  <button onClick={() => updateStatus(order.id, "fulfilled")} style={{ padding: "6px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600, background: "#4a6741", color: "#fff" }}>Mark Fulfilled</button>
-                )}
-                {/* Cancel: from pending or confirmed only (not fulfilled) */}
-                {(order.status === "pending" || order.status === "confirmed") && (
-                  <button onClick={() => { if (window.confirm(`Cancel order ${order.id}? Items will be added back to inventory.`)) updateStatus(order.id, "cancelled"); }}
-                    style={{ padding: "6px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600, background: "#fff", color: "#c0392b", border: "1px solid #c0392b" }}>Cancel</button>
-                )}
-                {/* Delete: only on terminal statuses */}
-                {(order.status === "fulfilled" || order.status === "cancelled") && (
-                  <button onClick={() => { if (window.confirm(`Delete order ${order.id}? This cannot be undone.`)) deleteOrder(order.id); }}
-                    style={{ padding: "6px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600, background: "#fff", color: "#888", border: "1px solid #ddd", display: "flex", alignItems: "center", gap: 4 }}>
-                    <Icon name="trash" size={12} /> Delete
-                  </button>
+                {isEditing && (
+                  <>
+                    <button onClick={() => saveEdit(order)} disabled={saving}
+                      style={{ padding: "6px 16px", borderRadius: 6, fontSize: 12, fontWeight: 600, background: saving ? "#aaa" : "#4a6741", color: "#fff", border: "none", cursor: saving ? "wait" : "pointer" }}>
+                      {saving ? "Saving…" : "💾 Save & Email Customer"}
+                    </button>
+                    <button onClick={cancelEdit} disabled={saving}
+                      style={{ padding: "6px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600, background: "#fff", color: "#666", border: "1px solid #ddd" }}>Cancel</button>
+                  </>
                 )}
               </div>
             </div>
