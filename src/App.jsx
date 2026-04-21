@@ -110,7 +110,7 @@ function usePageHeaderHeight(ref) {
 const STICKY_TOP = "var(--sticky-header-h, 60px)";
 
 export default function App() {
-  const [view, setView] = useState("shop");
+  const [view, setView] = useState("home");
   const [plants, setPlants] = useState([]);
   const [orders, setOrders] = useState([]);
   const ordersRef = useRef([]);  // mirror of orders for use inside async callbacks
@@ -400,8 +400,10 @@ export default function App() {
         .order-input:focus { outline: 2px solid #4a6741; outline-offset: -1px; }
         .order-input { transition: background .15s; }
       `}</style>
-      {view === "shop" ? (
-        <ShopView plants={plants} cart={cart} updateCartQty={updateCartQty} removeFromCart={removeFromCart} submitOrder={submitOrder} showToast={showToast} onGoAdmin={() => setView("admin")} />
+      {view === "home" ? (
+        <HomeView onShop={() => setView("shop")} />
+      ) : view === "shop" ? (
+        <ShopView plants={plants} cart={cart} updateCartQty={updateCartQty} removeFromCart={removeFromCart} submitOrder={submitOrder} showToast={showToast} onGoAdmin={() => setView("admin")} onGoHome={() => setView("home")} />
       ) : (
         session ? (
           <AdminView plants={plants} orders={orders} savePlants={savePlants} saveOrders={saveOrders} updateOrderStatus={updateOrderStatus} updateOrderItems={updateOrderItems} deleteOrder={deleteOrder} deleteOrdersByStatus={deleteOrdersByStatus} showToast={showToast} onGoShop={() => setView("shop")} onSignOut={signOut} session={session} />
@@ -414,9 +416,212 @@ export default function App() {
 }
 
 // ═══════════════════════════════════════════
+// ─── HOME (MARKETING) VIEW ────────────────
+// ═══════════════════════════════════════════
+function HomeView({ onShop }) {
+  // Trigger Ken Burns zoom on mount
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setLoaded(true), 100);
+    return () => clearTimeout(t);
+  }, []);
+
+  const arrowSvg = (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+      <path d="M5 12h14M13 6l6 6-6 6" />
+    </svg>
+  );
+
+  return (
+    <div className="home-root">
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,300;1,400;1,500&family=DM+Sans:wght@300;400;500;600&display=swap');
+
+        .home-root { --green-deep:#152a1e; --green-mid:#2d5a3d; --green-bright:#5aad6a; --chartreuse:#c8e84e; --purple:#7b3fa0; --white:#fefefc;
+          --serif:'Cormorant Garamond',Georgia,serif; --sans:'DM Sans',system-ui,sans-serif;
+          font-family:var(--sans); background:var(--green-deep); color:var(--white); overflow-x:hidden; min-height:100vh; }
+        .home-root *,.home-root *::before,.home-root *::after { box-sizing:border-box; margin:0; padding:0; }
+
+        .hero { position:relative; width:100%; min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; overflow:hidden; }
+        .hero-bg { position:absolute; inset:0; background-image:url('/uploads/hero-foliage.jpg'); background-size:cover; background-position:center 30%; transform:scale(1.04); transition:transform 8s ease-out; }
+        .hero-bg.loaded { transform:scale(1); }
+        .hero-overlay { position:absolute; inset:0; background:
+          radial-gradient(ellipse at 50% 50%, rgba(10,22,14,0.55) 0%, transparent 65%),
+          linear-gradient(to bottom, rgba(14,28,20,0.75) 0%, rgba(14,28,20,0.25) 30%, rgba(14,28,20,0.25) 65%, rgba(14,28,20,0.85) 100%); }
+        .hero-wash { position:absolute; inset:0; background:
+          radial-gradient(ellipse at 30% 60%, rgba(90,173,106,0.12) 0%, transparent 60%),
+          radial-gradient(ellipse at 75% 55%, rgba(123,63,160,0.10) 0%, transparent 55%);
+          mix-blend-mode:screen; }
+        .hero-content { position:relative; z-index:2; text-align:center; padding:40px 24px; max-width:860px; display:flex; flex-direction:column; align-items:center; }
+
+        .home-nav { position:absolute; top:0; left:0; right:0; z-index:10; display:flex; align-items:center; justify-content:space-between; padding:24px 40px; }
+        .nav-logo { display:flex; align-items:center; gap:10px; text-decoration:none; color:var(--white); }
+        .nav-logo-mark { width:52px; height:52px; background:rgba(255,255,255,0.12); border:1px solid rgba(255,255,255,0.25); border-radius:14px; display:flex; align-items:center; justify-content:center; backdrop-filter:blur(8px); flex-shrink:0; }
+        .nav-logo-text { font-family:var(--serif); font-size:30px; font-weight:500; letter-spacing:0.01em; line-height:1.1; }
+        .nav-logo-sub { display:block; font-family:var(--sans); font-size:11px; font-weight:400; letter-spacing:0.1em; text-transform:uppercase; color:rgba(255,255,255,0.5); margin-top:1px; }
+
+        .eyebrow { font-size:16px; font-weight:500; letter-spacing:0.14em; text-transform:uppercase; color:var(--chartreuse); margin-bottom:28px; display:flex; align-items:center; gap:14px; text-shadow:0 0 20px rgba(200,232,78,0.5); }
+        .eyebrow::before,.eyebrow::after { content:''; display:block; width:40px; height:1.5px; background:var(--chartreuse); opacity:0.7; }
+        .home-root h1 { font-family:var(--serif); font-size:clamp(44px, 9vw, 100px); font-weight:400; line-height:1.05; letter-spacing:-0.02em; color:var(--white); margin-bottom:6px; text-shadow:0 2px 40px rgba(0,0,0,0.9), 0 1px 8px rgba(0,0,0,0.8), 0 4px 80px rgba(0,0,0,0.7); }
+        .hero-text-backdrop { position:absolute; inset:-40px -60px; background:radial-gradient(ellipse at 50% 50%, rgba(10,22,14,0.65) 0%, transparent 72%); pointer-events:none; z-index:-1; }
+        .tagline { font-size:clamp(15px, 1.8vw, 18px); font-weight:300; color:rgba(255,255,255,0.68); margin-top:28px; margin-bottom:48px; line-height:1.6; max-width:480px; text-wrap:pretty; }
+
+        .cta-group { display:flex; align-items:center; gap:16px; flex-wrap:wrap; justify-content:center; }
+        .btn-primary { display:inline-flex; align-items:center; gap:10px; background:var(--chartreuse); color:var(--green-deep); text-decoration:none; font-family:var(--sans); font-size:15px; font-weight:600; letter-spacing:0.01em; border-radius:100px; padding:16px 36px; transition:transform .2s, box-shadow .2s, background .2s; box-shadow:0 4px 32px rgba(200,232,78,0.35); white-space:nowrap; border:none; cursor:pointer; }
+        .btn-primary:hover { background:#d6f258; transform:translateY(-2px); box-shadow:0 8px 40px rgba(200,232,78,0.45); }
+        .btn-primary:active { transform:scale(0.98); }
+        .btn-primary svg { transition:transform .2s; }
+        .btn-primary:hover svg { transform:translateX(3px); }
+
+        .scroll-hint { position:absolute; bottom:32px; left:50%; transform:translateX(-50%); z-index:5; display:flex; flex-direction:column; align-items:center; gap:8px; color:rgba(255,255,255,0.4); font-size:11px; letter-spacing:0.08em; text-transform:uppercase; animation:hfadeUp 2s ease-in-out infinite; }
+        @keyframes hfadeUp { 0%,100% { opacity:0.4; transform:translateX(-50%) translateY(0); } 50% { opacity:0.7; transform:translateX(-50%) translateY(-4px); } }
+
+        .features { background:var(--green-deep); padding:80px 40px 100px; }
+        .features-inner { max-width:1000px; margin:0 auto; display:grid; grid-template-columns:repeat(3,1fr); gap:48px 40px; }
+        .feature { display:flex; flex-direction:column; gap:14px; }
+        .feature-icon { width:48px; height:48px; border-radius:14px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+        .feature-icon.green  { background:rgba(90,173,106,0.15); color:var(--green-bright); }
+        .feature-icon.chart  { background:rgba(200,232,78,0.12); color:var(--chartreuse); }
+        .feature-icon.purple { background:rgba(123,63,160,0.18); color:#b36fd0; }
+        .feature h3 { font-family:var(--serif); font-size:22px; font-weight:500; color:var(--white); line-height:1.2; }
+        .feature p  { font-size:14px; font-weight:300; color:rgba(255,255,255,0.55); line-height:1.65; text-wrap:pretty; }
+
+        .bottom-band { background:var(--chartreuse); padding:64px 40px; text-align:center; position:relative; overflow:hidden; }
+        .bottom-band::before { content:''; position:absolute; inset:0; background:url('/uploads/hero-foliage.jpg') center 55% / cover no-repeat; opacity:0.08; }
+        .bottom-band-inner { position:relative; z-index:1; max-width:640px; margin:0 auto; }
+        .bottom-band h2 { font-family:var(--serif); font-size:clamp(36px, 5vw, 56px); font-weight:500; color:var(--green-deep); line-height:1.05; margin-bottom:20px; letter-spacing:-0.02em; }
+        .bottom-band h2 em { font-style:italic; }
+        .bottom-band p { font-size:16px; font-weight:300; color:rgba(21,42,30,0.7); margin-bottom:36px; }
+        .btn-dark { display:inline-flex; align-items:center; gap:10px; background:var(--green-deep); color:var(--white); text-decoration:none; font-family:var(--sans); font-size:15px; font-weight:600; border-radius:100px; padding:16px 36px; transition:transform .2s, box-shadow .2s, background .2s; box-shadow:0 4px 24px rgba(21,42,30,0.25); border:none; cursor:pointer; }
+        .btn-dark:hover { background:var(--green-mid); transform:translateY(-2px); box-shadow:0 8px 32px rgba(21,42,30,0.35); }
+        .btn-dark svg { transition:transform .2s; }
+        .btn-dark:hover svg { transform:translateX(3px); }
+
+        .home-footer { background:#0d1f16; padding:28px 40px; display:flex; align-items:center; justify-content:space-between; gap:20px; flex-wrap:wrap; }
+        .footer-logo { font-family:var(--serif); font-size:17px; font-weight:500; color:rgba(255,255,255,0.5); letter-spacing:0.02em; }
+        .home-footer p { font-size:12px; color:rgba(255,255,255,0.3); }
+        .home-footer a { color:rgba(255,255,255,0.45); text-decoration:none; font-size:12px; transition:color .2s; }
+        .home-footer a:hover { color:rgba(255,255,255,0.8); }
+
+        @media (max-width:700px) {
+          .home-nav { padding:20px 20px; }
+          .nav-logo-text { font-size:24px; }
+          .features { padding:60px 24px 80px; }
+          .features-inner { grid-template-columns:1fr; gap:36px; }
+          .bottom-band { padding:56px 24px; }
+          .home-footer { padding:24px 20px; flex-direction:column; align-items:flex-start; gap:8px; }
+        }
+      `}</style>
+
+      {/* NAV */}
+      <nav className="home-nav">
+        <a href="#" onClick={(e) => e.preventDefault()} className="nav-logo">
+          <div className="nav-logo-mark">
+            <svg width="26" height="26" viewBox="0 0 18 18" fill="none" stroke="white" strokeWidth="1.5">
+              <path d="M9 15V7M9 7C9 7 5 4 3 3C3 6 5.5 9 9 7ZM9 7C9 7 13 4 15 3C15 6 12.5 9 9 7Z"/>
+              <circle cx="9" cy="16" r="1" fill="white" stroke="none"/>
+            </svg>
+          </div>
+          <div>
+            <span className="nav-logo-text">Park Greenhouse</span>
+            <span className="nav-logo-sub">Plant Nursery</span>
+          </div>
+        </a>
+      </nav>
+
+      {/* HERO */}
+      <section className="hero">
+        <div className={`hero-bg${loaded ? " loaded" : ""}`} />
+        <div className="hero-overlay" />
+        <div className="hero-wash" />
+
+        <div className="hero-content">
+          <div className="hero-text-backdrop" />
+          <div className="eyebrow">Locally Grown · Fresh Weekly</div>
+          <h1>Beautiful plants,<br />right from our greenhouse.</h1>
+          <p className="tagline">
+            Browse our full collection of foliage, annuals, perennials, vegetables, and more — then order online for pickup or local delivery.
+          </p>
+          <div className="cta-group">
+            <button onClick={onShop} className="btn-primary">
+              Shop Plants Now
+              {arrowSvg}
+            </button>
+          </div>
+        </div>
+
+        <div className="scroll-hint">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <path d="M12 5v14M5 13l7 7 7-7"/>
+          </svg>
+        </div>
+      </section>
+
+      {/* FEATURES */}
+      <section className="features">
+        <div className="features-inner">
+          <div className="feature">
+            <div className="feature-icon green">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path d="M12 20V10M12 10C12 10 7 6 4 4C4 8 7.5 12 12 10ZM12 10C12 10 17 6 20 4C20 8 16.5 12 12 10Z"/>
+              </svg>
+            </div>
+            <h3>200+ Varieties<br />in Stock</h3>
+            <p>From foliage tropicals to flowering annuals, hardy perennials, vegetables, and herbs — we grow a huge selection year-round and refresh weekly.</p>
+          </div>
+
+          <div className="feature">
+            <div className="feature-icon chart">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <rect x="3" y="3" width="7" height="7" rx="1.5"/>
+                <rect x="14" y="3" width="7" height="7" rx="1.5"/>
+                <rect x="3" y="14" width="7" height="7" rx="1.5"/>
+                <path d="M17 14v7M14 17h7"/>
+              </svg>
+            </div>
+            <h3>Easy Online<br />Ordering</h3>
+            <p>Browse by category, add to cart, and check out in minutes. Order ahead for best availability!</p>
+          </div>
+
+          <div className="feature">
+            <div className="feature-icon purple">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/>
+                <circle cx="12" cy="9" r="2.5"/>
+              </svg>
+            </div>
+            <h3>Local Pickup &amp;<br />Delivery</h3>
+            <p>Pick up your order at our greenhouse or choose local delivery. We take care of the details so your plants arrive healthy and ready to grow.</p>
+          </div>
+        </div>
+      </section>
+
+      {/* BOTTOM CTA */}
+      <section className="bottom-band">
+        <div className="bottom-band-inner">
+          <h2>Ready to grow<br /><em>something beautiful?</em></h2>
+          <p>Order fresh plants from our greenhouses, there are new varieties every week.</p>
+          <button onClick={onShop} className="btn-dark">
+            Browse the Full Catalog
+            {arrowSvg}
+          </button>
+        </div>
+      </section>
+
+      {/* FOOTER */}
+      <footer className="home-footer">
+        <span className="footer-logo">Park Greenhouse</span>
+        <p>© 2026 Park Greenhouse · All rights reserved</p>
+        <a href="https://www.google.com/maps/search/?api=1&query=12813+West+Ripon+Rd,+Ripon,+CA+95366" target="_blank" rel="noopener noreferrer">📍 12813 West Ripon Rd, Ripon, CA 95366</a>
+      </footer>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════
 // ─── SHOP VIEW ────────────────────────────
 // ═══════════════════════════════════════════
-function ShopView({ plants, cart, updateCartQty, removeFromCart, submitOrder, showToast, onGoAdmin }) {
+function ShopView({ plants, cart, updateCartQty, removeFromCart, submitOrder, showToast, onGoAdmin, onGoHome }) {
   const headerRef = useRef(null);
   usePageHeaderHeight(headerRef);
   const [search, setSearch] = useState("");
