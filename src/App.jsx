@@ -419,11 +419,31 @@ export default function App() {
 // ─── HOME (MARKETING) VIEW ────────────────
 // ═══════════════════════════════════════════
 function HomeView({ onShop }) {
-  // Trigger Ken Burns zoom on mount
   const [loaded, setLoaded] = useState(false);
+
+  // Ken Burns zoom on mount
   useEffect(() => {
     const t = setTimeout(() => setLoaded(true), 100);
     return () => clearTimeout(t);
+  }, []);
+
+  // Expand #root to full viewport so the hero goes edge-to-edge.
+  // Without this, #root's 1126px max-width clips the background image
+  // and offsets the nav from the true left edge of the screen.
+  useEffect(() => {
+    const root = document.getElementById('root');
+    if (!root) return;
+    const prev = { width: root.style.width, maxWidth: root.style.maxWidth, margin: root.style.margin, borderInline: root.style.borderInline };
+    root.style.width = '100%';
+    root.style.maxWidth = '100vw';
+    root.style.margin = '0';
+    root.style.borderInline = 'none';
+    return () => {
+      root.style.width = prev.width;
+      root.style.maxWidth = prev.maxWidth;
+      root.style.margin = prev.margin;
+      root.style.borderInline = prev.borderInline;
+    };
   }, []);
 
   const arrowSvg = (
