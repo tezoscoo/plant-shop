@@ -928,37 +928,86 @@ function ShopView({ plants, cart, updateCartQty, removeFromCart, submitOrder, sh
         </div>
 
         {/* ── SPECIAL ORDER REQUEST ── */}
-        <div style={{ background: "#fff", borderRadius: 10, border: "1px dashed #b0c4a8", padding: "16px 20px", marginTop: 16, display: "flex", flexDirection: "column", gap: 10 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <div style={{ fontSize: 18 }}>✏️</div>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: "#4a6741" }}>Special Order Request</div>
-              <div style={{ fontSize: 11, color: "#999", marginTop: 1 }}>Can't find what you need? Describe it, and if it is available,<br />we'll send it to you.</div>
+        <div style={{
+          background: "linear-gradient(135deg, #fafbf7 0%, #eef3e6 100%)",
+          borderRadius: 14,
+          border: "1px solid #d4e0c8",
+          padding: "18px 22px",
+          marginTop: 18,
+          boxShadow: "0 1px 3px rgba(74,103,65,.06)",
+          display: "flex",
+          alignItems: "center",
+          gap: 22,
+          flexWrap: "wrap",
+        }}>
+          {/* Heading block */}
+          <div style={{ display: "flex", alignItems: "center", gap: 14, flex: "1 1 280px", minWidth: 240 }}>
+            <div style={{
+              width: 42, height: 42, borderRadius: "50%",
+              background: "#4a6741", color: "#fff",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 18, flexShrink: 0,
+              boxShadow: "0 2px 6px rgba(74,103,65,.25)",
+            }}>✏️</div>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5534", letterSpacing: .2 }}>Special Order Request</div>
+              <div style={{ fontSize: 12, color: "#7a857a", marginTop: 3, lineHeight: 1.5, maxWidth: 320 }}>
+                Can't find what you need? Describe it, and if it is available, we'll send it to you.
+              </div>
             </div>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-          <input
-            value={specialName}
-            onChange={e => setSpecialName(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === "Enter" && specialName.trim()) {
+
+          {/* Form controls */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flex: "2 1 360px", minWidth: 300 }}>
+            <input
+              value={specialName}
+              onChange={e => setSpecialName(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === "Enter" && specialName.trim()) {
+                  updateCartQty(`special-${Date.now()}`, specialQty, { plantName: specialName.trim(), size: "", unitPrice: 0, specialOrder: true });
+                  setSpecialName(""); setSpecialQty(1);
+                }
+              }}
+              placeholder="Describe the item (e.g. 'Fiddle Leaf Fig, 10 gal')…"
+              style={{
+                flex: 1, minWidth: 0,
+                padding: "10px 14px",
+                border: "1px solid #c8d4bd", borderRadius: 8,
+                fontSize: 13, background: "#fff", outline: "none",
+                transition: "border-color .15s, box-shadow .15s",
+              }}
+              onFocus={e => { e.target.style.borderColor = "#4a6741"; e.target.style.boxShadow = "0 0 0 3px rgba(74,103,65,.12)"; }}
+              onBlur={e => { e.target.style.borderColor = "#c8d4bd"; e.target.style.boxShadow = "none"; }}
+            />
+            <input
+              type="number" min="1" value={specialQty}
+              onChange={e => setSpecialQty(Math.max(1, parseInt(e.target.value, 10) || 1))}
+              style={{
+                width: 60, padding: "10px 6px",
+                border: "1px solid #c8d4bd", borderRadius: 8,
+                fontSize: 13, textAlign: "center", background: "#fff", outline: "none",
+              }}
+            />
+            <button
+              disabled={!specialName.trim()}
+              onClick={() => {
                 updateCartQty(`special-${Date.now()}`, specialQty, { plantName: specialName.trim(), size: "", unitPrice: 0, specialOrder: true });
                 setSpecialName(""); setSpecialQty(1);
-              }
-            }}
-            placeholder="Describe the item (e.g. 'Fiddle Leaf Fig, 10 gal')…"
-            style={{ flex: "1 1 260px", minWidth: 200, padding: "8px 12px", border: "1px solid #ddd", borderRadius: 6, fontSize: 13, outline: "none" }} />
-          <input type="number" min="1" value={specialQty} onChange={e => setSpecialQty(Math.max(1, parseInt(e.target.value, 10) || 1))}
-            style={{ width: 64, padding: "8px 6px", border: "1px solid #ddd", borderRadius: 6, fontSize: 13, textAlign: "center" }} />
-          <button
-            disabled={!specialName.trim()}
-            onClick={() => {
-              updateCartQty(`special-${Date.now()}`, specialQty, { plantName: specialName.trim(), size: "", unitPrice: 0, specialOrder: true });
-              setSpecialName(""); setSpecialQty(1);
-            }}
-            style={{ padding: "8px 18px", borderRadius: 6, fontSize: 13, fontWeight: 600, background: specialName.trim() ? "#4a6741" : "#ccc", color: "#fff", border: "none", cursor: specialName.trim() ? "pointer" : "not-allowed" }}>
-            Add to Cart
-          </button>
+              }}
+              style={{
+                padding: "10px 20px", borderRadius: 8,
+                fontSize: 13, fontWeight: 600,
+                background: specialName.trim() ? "#4a6741" : "#c5ccbf",
+                color: "#fff", border: "none", whiteSpace: "nowrap",
+                cursor: specialName.trim() ? "pointer" : "not-allowed",
+                boxShadow: specialName.trim() ? "0 2px 6px rgba(74,103,65,.25)" : "none",
+                transition: "background .15s, box-shadow .15s, transform .1s",
+              }}
+              onMouseOver={e => { if (specialName.trim()) e.currentTarget.style.background = "#3a5534"; }}
+              onMouseOut={e => { if (specialName.trim()) e.currentTarget.style.background = "#4a6741"; }}
+            >
+              Add to Cart
+            </button>
           </div>
         </div>
 
