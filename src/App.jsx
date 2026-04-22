@@ -302,8 +302,19 @@ export default function App() {
     showToast("Signed out");
   }, [showToast]);
 
-  const updateCartQty = (plantId, qty) => {
+  const updateCartQty = (plantId, qty, specialMeta = null) => {
+    // Special order items (no matching plant in inventory)
+    if (specialMeta) {
+      if (qty <= 0) return;
+      setCart(prev => [...prev, { plantId, quantity: qty, ...specialMeta }]);
+      return;
+    }
     if (qty <= 0) { setCart(prev => prev.filter(c => c.plantId !== plantId)); return; }
+    // Existing special order in cart — no stock cap
+    if (plantId.startsWith("special-")) {
+      setCart(prev => prev.map(c => c.plantId === plantId ? { ...c, quantity: qty } : c));
+      return;
+    }
     const plant = plants.find(p => p.id === plantId);
     if (!plant || plant.quantity <= 0) return;
     const clampedQty = Math.min(qty, plant.quantity);
@@ -325,7 +336,8 @@ export default function App() {
       plantName: c.plantName,
       size: c.size || "",
       quantity: c.quantity,
-      unitPrice: c.unitPrice,
+      unitPrice: c.unitPrice || 0,
+      ...(c.specialOrder ? { specialOrder: true } : {}),
     }));
     const discount = customerInfo.discount || null;
     let notes = customerInfo.notes || "";
@@ -657,6 +669,8 @@ function ShopView({ plants, cart, updateCartQty, removeFromCart, submitOrder, sh
   const [sortCol, setSortCol] = useState("category");
   const [sortDir, setSortDir] = useState("asc");
   const [sizeFilter, setSizeFilter] = useState("All");
+  const [specialName, setSpecialName] = useState("");
+  const [specialQty, setSpecialQty] = useState(1);
 
   // When the user switches category or size filters, reset scroll to the top so
   // the first row of the new result set isn't hidden beneath the sticky table header.
@@ -913,6 +927,37 @@ function ShopView({ plants, cart, updateCartQty, removeFromCart, submitOrder, sh
           </table>
         </div>
 
+        {/* ── SPECIAL ORDER REQUEST ── */}
+        <div style={{ background: "#fff", borderRadius: 10, border: "1px dashed #b0c4a8", padding: "16px 20px", marginTop: 16, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <div style={{ fontSize: 18 }}>✏️</div>
+          <div style={{ flex: "0 0 auto" }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#4a6741" }}>Special Order Request</div>
+            <div style={{ fontSize: 11, color: "#999", marginTop: 1 }}>Can't find what you need? Describe it and we'll source it for you.</div>
+          </div>
+          <input
+            value={specialName}
+            onChange={e => setSpecialName(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === "Enter" && specialName.trim()) {
+                updateCartQty(`special-${Date.now()}`, specialQty, { plantName: specialName.trim(), size: "", unitPrice: 0, specialOrder: true });
+                setSpecialName(""); setSpecialQty(1);
+              }
+            }}
+            placeholder="Describe the item (e.g. 'Fiddle Leaf Fig, 10 gal')…"
+            style={{ flex: "1 1 260px", minWidth: 200, padding: "8px 12px", border: "1px solid #ddd", borderRadius: 6, fontSize: 13, outline: "none" }} />
+          <input type="number" min="1" value={specialQty} onChange={e => setSpecialQty(Math.max(1, parseInt(e.target.value, 10) || 1))}
+            style={{ width: 64, padding: "8px 6px", border: "1px solid #ddd", borderRadius: 6, fontSize: 13, textAlign: "center" }} />
+          <button
+            disabled={!specialName.trim()}
+            onClick={() => {
+              updateCartQty(`special-${Date.now()}`, specialQty, { plantName: specialName.trim(), size: "", unitPrice: 0, specialOrder: true });
+              setSpecialName(""); setSpecialQty(1);
+            }}
+            style={{ padding: "8px 18px", borderRadius: 6, fontSize: 13, fontWeight: 600, background: specialName.trim() ? "#4a6741" : "#ccc", color: "#fff", border: "none", cursor: specialName.trim() ? "pointer" : "not-allowed" }}>
+            Add to Cart
+          </button>
+        </div>
+
         {cartCount > 0 && (
           <div style={{
             position: "sticky", bottom: 0, marginTop: 12,
@@ -969,19 +1014,25 @@ function CartDrawer({ cart, plants, cartTotal, updateCartQty, removeFromCart, on
                 <th style={{ width: 30 }}></th>
               </tr></thead>
               <tbody>{cart.map(item => {
-                const plant = plants.find(p => p.id === item.plantId);
-                const maxQ = plant ? plant.quantity : 99;
+                const isSpecial = !!item.specialOrder;
+                const plant = !isSpecial ? plants.find(p => p.id === item.plantId) : null;
+                const maxQ = isSpecial ? Infinity : (plant ? plant.quantity : 99);
                 return (
                   <tr key={item.plantId} style={{ borderBottom: "1px solid #f0f0f0" }}>
-                    <td style={{ padding: "10px 0" }}><div style={{ fontWeight: 600, fontSize: 13 }}>{item.plantName}</div><div style={{ color: "#888", fontSize: 12 }}>{fmt(item.unitPrice)} ea</div></td>
+                    <td style={{ padding: "10px 0" }}>
+                      <div style={{ fontWeight: 600, fontSize: 13 }}>{item.plantName}</div>
+                      {isSpecial
+                        ? <div style={{ fontSize: 11, color: "#4a6741", fontWeight: 600, marginTop: 2 }}>✏️ Special Order · price TBD</div>
+                        : <div style={{ color: "#888", fontSize: 12 }}>{fmt(item.unitPrice)} ea</div>}
+                    </td>
                     <td style={{ textAlign: "center" }}>
                       <div style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
                         <button onClick={() => updateCartQty(item.plantId, item.quantity - 1)} style={{ width: 24, height: 24, borderRadius: 4, background: "#f0f0f0", display: "flex", alignItems: "center", justifyContent: "center" }}><Icon name="minus" size={12} /></button>
                         <span style={{ fontWeight: 700, fontSize: 14, minWidth: 20, textAlign: "center" }}>{item.quantity}</span>
-                        <button onClick={() => updateCartQty(item.plantId, Math.min(item.quantity + 1, maxQ))} style={{ width: 24, height: 24, borderRadius: 4, background: "#f0f0f0", display: "flex", alignItems: "center", justifyContent: "center" }}><Icon name="plus" size={12} /></button>
+                        <button onClick={() => updateCartQty(item.plantId, isSpecial ? item.quantity + 1 : Math.min(item.quantity + 1, maxQ))} style={{ width: 24, height: 24, borderRadius: 4, background: "#f0f0f0", display: "flex", alignItems: "center", justifyContent: "center" }}><Icon name="plus" size={12} /></button>
                       </div>
                     </td>
-                    <td style={{ textAlign: "right", fontWeight: 600, fontSize: 14 }}>{fmt(item.quantity * item.unitPrice)}</td>
+                    <td style={{ textAlign: "right", fontWeight: 600, fontSize: 14 }}>{isSpecial ? "—" : fmt(item.quantity * item.unitPrice)}</td>
                     <td><button onClick={() => removeFromCart(item.plantId)} style={{ color: "#c0392b" }}><Icon name="trash" size={14} /></button></td>
                   </tr>
                 );
@@ -1035,18 +1086,22 @@ function CartPage({ cart, plants, cartTotal, updateCartQty, removeFromCart, onCl
           <div>
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               {cart.map(item => {
-                const plant = plants.find(p => p.id === item.plantId);
-                const maxQ = plant ? plant.quantity + item.quantity : 99;
+                const isSpecial = !!item.specialOrder;
+                const plant = !isSpecial ? plants.find(p => p.id === item.plantId) : null;
+                const maxQ = isSpecial ? Infinity : (plant ? plant.quantity + item.quantity : 99);
                 return (
                   <div key={item.plantId} style={{
-                    background: "#fff", borderRadius: 10, border: "1px solid #e8e4dc",
+                    background: "#fff", borderRadius: 10,
+                    border: isSpecial ? "1px dashed #b0c4a8" : "1px solid #e8e4dc",
                     padding: "16px 20px", display: "flex", alignItems: "center", gap: 16,
                     boxShadow: "0 1px 4px rgba(0,0,0,.04)", flexWrap: "wrap",
                   }}>
                     <div style={{ flex: 1, minWidth: 180 }}>
                       <div style={{ fontWeight: 600, fontSize: 15 }}>{item.plantName}</div>
-                      <div style={{ color: "#888", fontSize: 13, marginTop: 2 }}>
-                        {item.size ? `${item.size} \u00b7 ` : ""}{fmt(item.unitPrice)} ea
+                      <div style={{ fontSize: 13, marginTop: 2 }}>
+                        {isSpecial
+                          ? <span style={{ color: "#4a6741", fontWeight: 600 }}>✏️ Special Order · price TBD</span>
+                          : <span style={{ color: "#888" }}>{item.size ? `${item.size} \u00b7 ` : ""}{fmt(item.unitPrice)} ea</span>}
                       </div>
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -1055,13 +1110,13 @@ function CartPage({ cart, plants, cartTotal, updateCartQty, removeFromCart, onCl
                         display: "flex", alignItems: "center", justifyContent: "center",
                       }}><Icon name="minus" size={14} /></button>
                       <span style={{ fontWeight: 700, fontSize: 16, minWidth: 28, textAlign: "center" }}>{item.quantity}</span>
-                      <button onClick={() => updateCartQty(item.plantId, Math.min(item.quantity + 1, maxQ))} style={{
+                      <button onClick={() => updateCartQty(item.plantId, isSpecial ? item.quantity + 1 : Math.min(item.quantity + 1, maxQ))} style={{
                         width: 32, height: 32, borderRadius: 6, background: "#f0f0f0",
                         display: "flex", alignItems: "center", justifyContent: "center",
                       }}><Icon name="plus" size={14} /></button>
                     </div>
                     <div style={{ fontWeight: 700, fontSize: 16, minWidth: 80, textAlign: "right" }}>
-                      {fmt(item.quantity * item.unitPrice)}
+                      {isSpecial ? "—" : fmt(item.quantity * item.unitPrice)}
                     </div>
                     <button onClick={() => removeFromCart(item.plantId)} style={{ color: "#c0392b", padding: 4 }}>
                       <Icon name="trash" size={18} />
