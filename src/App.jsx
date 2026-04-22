@@ -932,7 +932,7 @@ function ShopView({ plants, cart, updateCartQty, removeFromCart, submitOrder, sh
           <div style={{ fontSize: 18 }}>✏️</div>
           <div style={{ flex: "0 0 auto" }}>
             <div style={{ fontSize: 13, fontWeight: 600, color: "#4a6741" }}>Special Order Request</div>
-            <div style={{ fontSize: 11, color: "#999", marginTop: 1 }}>Can't find what you need? Describe it and we'll source it for you.</div>
+            <div style={{ fontSize: 11, color: "#999", marginTop: 1 }}>Can't find what you need? Describe it, and if it is available, we'll send it to you.</div>
           </div>
           <input
             value={specialName}
