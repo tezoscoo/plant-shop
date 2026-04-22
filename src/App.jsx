@@ -747,13 +747,16 @@ function ShopView({ plants, cart, updateCartQty, removeFromCart, submitOrder, sh
         boxShadow: "0 2px 20px rgba(74,103,65,.3)",
       }}>
         <div style={{ maxWidth: 1400, margin: "0 auto", padding: "14px 24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <button onClick={onGoHome} style={{ display: "flex", alignItems: "center", gap: 12, color: "#fff", padding: "4px 8px", borderRadius: 8, transition: "background .15s" }}
+            onMouseOver={e => e.currentTarget.style.background = "rgba(255,255,255,.1)"}
+            onMouseOut={e => e.currentTarget.style.background = "transparent"}
+            title="Back to home">
             <Icon name="leaf" size={26} />
-            <div>
+            <div style={{ textAlign: "left" }}>
               <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 20, fontWeight: 600, lineHeight: 1.1 }}>Park Greenhouse</div>
               <div style={{ fontSize: 10, opacity: .75, letterSpacing: 2, textTransform: "uppercase" }}>Current Availability</div>
             </div>
-          </div>
+          </button>
           <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
             <button onClick={onGoAdmin} style={{ color: "#fff", opacity: .6, fontSize: 11, letterSpacing: 1, textTransform: "uppercase", padding: "5px 10px" }}
               onMouseOver={e => e.target.style.opacity = 1} onMouseOut={e => e.target.style.opacity = .6}>Admin</button>
