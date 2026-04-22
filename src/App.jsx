@@ -454,11 +454,12 @@ function HomeView({ onShop }) {
           mix-blend-mode:screen; }
         .hero-content { position:relative; z-index:2; text-align:center; padding:40px 24px; max-width:860px; display:flex; flex-direction:column; align-items:center; }
 
-        .home-nav { position:absolute; top:0; left:0; right:0; z-index:10; display:flex; align-items:center; justify-content:space-between; padding:24px 40px; overflow:hidden; }
-        .nav-logo { display:flex; align-items:center; gap:10px; text-decoration:none; color:var(--white); min-width:0; overflow:hidden; }
+        .home-nav { position:absolute; top:0; left:0; right:0; z-index:10; display:flex; align-items:center; justify-content:space-between; padding:24px 40px; }
+        .nav-logo { display:flex; align-items:center; gap:10px; text-decoration:none; color:var(--white); min-width:0; flex-shrink:1; }
         .nav-logo-mark { width:52px; height:52px; background:rgba(255,255,255,0.12); border:1px solid rgba(255,255,255,0.25); border-radius:14px; display:flex; align-items:center; justify-content:center; backdrop-filter:blur(8px); flex-shrink:0; }
-        .nav-logo-text { font-family:var(--serif); font-size:clamp(18px,4vw,30px); font-weight:500; letter-spacing:0.01em; line-height:1.1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-        .nav-logo-sub { display:block; font-family:var(--sans); font-size:11px; font-weight:400; letter-spacing:0.1em; text-transform:uppercase; color:rgba(255,255,255,0.5); margin-top:1px; }
+        .nav-logo-words { min-width:0; overflow:hidden; }
+        .nav-logo-text { font-family:var(--serif); font-size:clamp(16px,5vw,30px); font-weight:500; letter-spacing:0.01em; line-height:1.1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:block; }
+        .nav-logo-sub { display:block; font-family:var(--sans); font-size:11px; font-weight:400; letter-spacing:0.1em; text-transform:uppercase; color:rgba(255,255,255,0.5); margin-top:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
         .eyebrow { font-size:16px; font-weight:500; letter-spacing:0.14em; text-transform:uppercase; color:var(--chartreuse); margin-bottom:28px; display:flex; align-items:center; gap:14px; text-shadow:0 0 20px rgba(200,232,78,0.5); }
         .eyebrow::before,.eyebrow::after { content:''; display:block; width:40px; height:1.5px; background:var(--chartreuse); opacity:0.7; }
@@ -504,8 +505,7 @@ function HomeView({ onShop }) {
         .home-footer a:hover { color:rgba(255,255,255,0.8); }
 
         @media (max-width:700px) {
-          .home-nav { padding:20px 20px; }
-          .nav-logo-text { font-size:24px; }
+          .home-nav { padding:16px 16px; }
           .features { padding:60px 24px 80px; }
           .features-inner { grid-template-columns:1fr; gap:36px; }
           .bottom-band { padding:56px 24px; }
@@ -523,7 +523,7 @@ function HomeView({ onShop }) {
               <circle cx="9" cy="16" r="1" fill="white" stroke="none"/>
             </svg>
           </div>
-          <div>
+          <div className="nav-logo-words">
             <span className="nav-logo-text">Park Greenhouse</span>
             <span className="nav-logo-sub">Plant Nursery</span>
           </div>
