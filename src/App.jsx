@@ -928,12 +928,15 @@ function ShopView({ plants, cart, updateCartQty, removeFromCart, submitOrder, sh
         </div>
 
         {/* ── SPECIAL ORDER REQUEST ── */}
-        <div style={{ background: "#fff", borderRadius: 10, border: "1px dashed #b0c4a8", padding: "16px 20px", marginTop: 16, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-          <div style={{ fontSize: 18 }}>✏️</div>
-          <div style={{ flex: "0 0 auto" }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: "#4a6741" }}>Special Order Request</div>
-            <div style={{ fontSize: 11, color: "#999", marginTop: 1 }}>Can't find what you need? Describe it, and if it is available, we'll send it to you.</div>
+        <div style={{ background: "#fff", borderRadius: 10, border: "1px dashed #b0c4a8", padding: "16px 20px", marginTop: 16, display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ fontSize: 18 }}>✏️</div>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "#4a6741" }}>Special Order Request</div>
+              <div style={{ fontSize: 11, color: "#999", marginTop: 1 }}>Can't find what you need? Describe it, and if it is available,<br />we'll send it to you.</div>
+            </div>
           </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <input
             value={specialName}
             onChange={e => setSpecialName(e.target.value)}
@@ -956,6 +959,7 @@ function ShopView({ plants, cart, updateCartQty, removeFromCart, submitOrder, sh
             style={{ padding: "8px 18px", borderRadius: 6, fontSize: 13, fontWeight: 600, background: specialName.trim() ? "#4a6741" : "#ccc", color: "#fff", border: "none", cursor: specialName.trim() ? "pointer" : "not-allowed" }}>
             Add to Cart
           </button>
+          </div>
         </div>
 
         {cartCount > 0 && (
