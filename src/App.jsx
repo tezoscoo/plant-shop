@@ -264,7 +264,7 @@ export default function App() {
     fetch("/api/send-order-email", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ order: updatedOrder }),
+      body: JSON.stringify({ order: updatedOrder, isUpdate: true }),
     }).catch(e => console.warn("[email] send-order-email failed:", e));
     showToast("Order updated — confirmation email sent");
     return true;
@@ -454,10 +454,10 @@ function HomeView({ onShop }) {
           mix-blend-mode:screen; }
         .hero-content { position:relative; z-index:2; text-align:center; padding:40px 24px; max-width:860px; display:flex; flex-direction:column; align-items:center; }
 
-        .home-nav { position:absolute; top:0; left:0; right:0; z-index:10; display:flex; align-items:center; justify-content:space-between; padding:24px 40px; }
-        .nav-logo { display:flex; align-items:center; gap:10px; text-decoration:none; color:var(--white); }
+        .home-nav { position:absolute; top:0; left:0; right:0; z-index:10; display:flex; align-items:center; justify-content:space-between; padding:24px 40px; overflow:hidden; }
+        .nav-logo { display:flex; align-items:center; gap:10px; text-decoration:none; color:var(--white); min-width:0; overflow:hidden; }
         .nav-logo-mark { width:52px; height:52px; background:rgba(255,255,255,0.12); border:1px solid rgba(255,255,255,0.25); border-radius:14px; display:flex; align-items:center; justify-content:center; backdrop-filter:blur(8px); flex-shrink:0; }
-        .nav-logo-text { font-family:var(--serif); font-size:30px; font-weight:500; letter-spacing:0.01em; line-height:1.1; }
+        .nav-logo-text { font-family:var(--serif); font-size:clamp(18px,4vw,30px); font-weight:500; letter-spacing:0.01em; line-height:1.1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
         .nav-logo-sub { display:block; font-family:var(--sans); font-size:11px; font-weight:400; letter-spacing:0.1em; text-transform:uppercase; color:rgba(255,255,255,0.5); margin-top:1px; }
 
         .eyebrow { font-size:16px; font-weight:500; letter-spacing:0.14em; text-transform:uppercase; color:var(--chartreuse); margin-bottom:28px; display:flex; align-items:center; gap:14px; text-shadow:0 0 20px rgba(200,232,78,0.5); }
@@ -510,6 +510,7 @@ function HomeView({ onShop }) {
           .features-inner { grid-template-columns:1fr; gap:36px; }
           .bottom-band { padding:56px 24px; }
           .home-footer { padding:24px 20px; flex-direction:column; align-items:flex-start; gap:8px; }
+          .home-footer > div { align-items:flex-start !important; }
         }
       `}</style>
 
@@ -612,7 +613,11 @@ function HomeView({ onShop }) {
       <footer className="home-footer">
         <span className="footer-logo">Park Greenhouse</span>
         <p>© 2026 Park Greenhouse · All rights reserved</p>
-        <a href="https://www.google.com/maps/search/?api=1&query=12813+West+Ripon+Rd,+Ripon,+CA+95366" target="_blank" rel="noopener noreferrer">📍 12813 West Ripon Rd, Ripon, CA 95366</a>
+        <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:4 }}>
+          <a href="https://www.google.com/maps/search/?api=1&query=12813+West+Ripon+Rd,+Ripon,+CA+95366" target="_blank" rel="noopener noreferrer">📍 12813 West Ripon Rd, Ripon, CA 95366</a>
+          <a href="tel:+12095997545">📞 (209) 599-7545</a>
+          <a href="mailto:parkgreenhouse@gmail.com">✉️ parkgreenhouse@gmail.com</a>
+        </div>
       </footer>
     </div>
   );
@@ -726,7 +731,7 @@ function ShopView({ plants, cart, updateCartQty, removeFromCart, submitOrder, sh
             <Icon name="leaf" size={26} />
             <div>
               <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 20, fontWeight: 600, lineHeight: 1.1 }}>Park Greenhouse</div>
-              <div style={{ fontSize: 10, opacity: .75, letterSpacing: 2, textTransform: "uppercase" }}>Wholesale Nursery — Current Availability</div>
+              <div style={{ fontSize: 10, opacity: .75, letterSpacing: 2, textTransform: "uppercase" }}>Current Availability</div>
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 14 }}>

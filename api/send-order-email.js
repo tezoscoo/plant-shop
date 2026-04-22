@@ -22,7 +22,7 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: "Email service not configured" });
   }
 
-  const { order } = req.body || {};
+  const { order, isUpdate } = req.body || {};
   if (!order || !order.id) {
     return res.status(400).json({ error: "Missing order data" });
   }
@@ -89,7 +89,7 @@ export default async function handler(req, res) {
     const { data, error } = await resend.emails.send({
       from,
       to: order.customerEmail,
-      subject: `Order Confirmed — ${order.id}`,
+      subject: isUpdate ? `UPDATED Order — ${order.id}` : `Order Confirmed — ${order.id}`,
       html: `
         <div style="font-family:'Helvetica Neue',Arial,sans-serif;max-width:600px;margin:0 auto;color:#2c2c2c">
           <div style="background:linear-gradient(135deg,#4a6741,#6b8c5e);padding:24px 28px;border-radius:10px 10px 0 0">
