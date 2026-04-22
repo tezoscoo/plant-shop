@@ -776,49 +776,56 @@ function ShopView({ plants, cart, updateCartQty, removeFromCart, submitOrder, sh
         </div>
       </header>
 
-      <div style={{ maxWidth: 1400, margin: "0 auto", padding: "14px 24px 0" }}>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-          <div style={{ position: "relative", width: 240 }}>
-            <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "#999" }}><Icon name="search" size={16} /></span>
-            <input value={search} onChange={e => setSearch(e.target.value)}
-              onKeyDown={e => { if (e.key === "Escape") setSearch(""); }}
-              placeholder="Search plants... (Esc to clear)"
-              style={{ width: "100%", padding: "8px 10px 8px 34px", border: "1px solid #ddd", borderRadius: 6, fontSize: 13, background: "#fff", outline: "none" }} />
-          </div>
-          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-            {["All", ...Array.from(new Set(plants.map(p => p.category).filter(Boolean))).sort()].map(cat => (
-              <button key={cat} onClick={() => setCategory(cat)} style={{
-                padding: "5px 12px", borderRadius: 16, fontSize: 12, fontWeight: 500,
-                background: category === cat ? "#4a6741" : "#fff",
-                color: category === cat ? "#fff" : "#666",
-                border: `1px solid ${category === cat ? "#4a6741" : "#ddd"}`,
-              }}>{cat}</button>
-            ))}
-          </div>
-          <div style={{ marginLeft: "auto", fontSize: 12, color: "#999" }}>
-            {filtered.length} item{filtered.length !== 1 ? "s" : ""}
-            {cartCount > 0 && <span style={{ marginLeft: 12, color: "#4a6741", fontWeight: 600 }}>{cartCount} in cart</span>}
-          </div>
-        </div>
-        {availableSizes.length > 1 && (
-          <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
-            <span style={{ fontSize: 10, color: "#888", letterSpacing: 1, textTransform: "uppercase", marginRight: 4 }}>Size</span>
-            {["All", ...availableSizes].map(sz => (
-              <button key={sz} onClick={() => setSizeFilter(sz)} style={{
-                padding: "4px 10px", borderRadius: 16, fontSize: 11, fontWeight: 500,
-                background: sizeFilter === sz ? "#4a6741" : "#fff",
-                color: sizeFilter === sz ? "#fff" : "#666",
-                border: `1px solid ${sizeFilter === sz ? "#4a6741" : "#ddd"}`,
-              }}>{sz}</button>
-            ))}
-            {filtersActive && (
-              <button onClick={resetFilters} style={{ marginLeft: 6, padding: "4px 10px", fontSize: 11, color: "#4a6741", textDecoration: "underline" }}>Reset filters</button>
-            )}
-          </div>
-        )}
-      </div>
+      <div style={{ maxWidth: 1400, margin: "0 auto", padding: "14px 24px 0", display: "flex", gap: 0, alignItems: "flex-start" }}>
 
-      <div style={{ maxWidth: 1400, margin: "0 auto", padding: "12px 24px 30px" }}>
+        {/* ── CATEGORY SIDEBAR ── */}
+        <div style={{ width: 130, flexShrink: 0, paddingRight: 14, paddingTop: 2 }}>
+          <div style={{ fontSize: 10, color: "#888", letterSpacing: 1, textTransform: "uppercase", marginBottom: 8, fontWeight: 600 }}>Category</div>
+          {["All", ...Array.from(new Set(plants.map(p => p.category).filter(Boolean))).sort()].map(cat => (
+            <button key={cat} onClick={() => setCategory(cat)} style={{
+              display: "block", width: "100%", padding: "7px 12px", borderRadius: 6,
+              fontSize: 12, fontWeight: 500, textAlign: "left", marginBottom: 4,
+              background: category === cat ? "#4a6741" : "#fff",
+              color: category === cat ? "#fff" : "#555",
+              border: `1px solid ${category === cat ? "#4a6741" : "#ddd"}`,
+              transition: "background .12s, color .12s",
+            }}>{cat}</button>
+          ))}
+        </div>
+
+        {/* ── MAIN AREA (search + size filters + table) ── */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 8 }}>
+            <div style={{ position: "relative", width: 240 }}>
+              <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "#999" }}><Icon name="search" size={16} /></span>
+              <input value={search} onChange={e => setSearch(e.target.value)}
+                onKeyDown={e => { if (e.key === "Escape") setSearch(""); }}
+                placeholder="Search plants... (Esc to clear)"
+                style={{ width: "100%", padding: "8px 10px 8px 34px", border: "1px solid #ddd", borderRadius: 6, fontSize: 13, background: "#fff", outline: "none" }} />
+            </div>
+            <div style={{ marginLeft: "auto", fontSize: 12, color: "#999" }}>
+              {filtered.length} item{filtered.length !== 1 ? "s" : ""}
+              {cartCount > 0 && <span style={{ marginLeft: 12, color: "#4a6741", fontWeight: 600 }}>{cartCount} in cart</span>}
+            </div>
+          </div>
+          {availableSizes.length > 1 && (
+            <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center", marginBottom: 8 }}>
+              <span style={{ fontSize: 10, color: "#888", letterSpacing: 1, textTransform: "uppercase", marginRight: 4 }}>Size</span>
+              {["All", ...availableSizes].map(sz => (
+                <button key={sz} onClick={() => setSizeFilter(sz)} style={{
+                  padding: "4px 10px", borderRadius: 16, fontSize: 11, fontWeight: 500,
+                  background: sizeFilter === sz ? "#4a6741" : "#fff",
+                  color: sizeFilter === sz ? "#fff" : "#666",
+                  border: `1px solid ${sizeFilter === sz ? "#4a6741" : "#ddd"}`,
+                }}>{sz}</button>
+              ))}
+              {filtersActive && (
+                <button onClick={resetFilters} style={{ marginLeft: 6, padding: "4px 10px", fontSize: 11, color: "#4a6741", textDecoration: "underline" }}>Reset filters</button>
+              )}
+            </div>
+          )}
+
+      <div style={{ paddingBottom: 30 }}>
         <div style={{ background: "#fff", borderRadius: 10, border: "1px solid #ddd", overflow: "clip", boxShadow: "0 1px 8px rgba(0,0,0,.05)" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
             <colgroup>
@@ -882,15 +889,15 @@ function ShopView({ plants, cart, updateCartQty, removeFromCart, submitOrder, sh
                       }} />
                       {plant.category}
                     </td>
-                    <td style={{ ...tdBase, color: "#666" }}>{plant.size}</td>
+                    <td style={{ ...tdBase }}>{plant.size}</td>
                     <td style={{ ...tdBase, fontWeight: 600, whiteSpace: "normal", wordWrap: "break-word", lineHeight: 1.3 }}>{plant.name}</td>
-                    <td style={{ ...tdBase, color: "#777", fontStyle: "italic", whiteSpace: "normal", wordWrap: "break-word", lineHeight: 1.3 }}>{plant.variety || "—"}</td>
+                    <td style={{ ...tdBase, fontStyle: "italic", whiteSpace: "normal", wordWrap: "break-word", lineHeight: 1.3 }}>{plant.variety || "—"}</td>
                     <td style={{ ...tdBase, textAlign: "right", fontWeight: 600 }}>{fmt(plant.price)}</td>
                     <td style={{ ...tdBase, textAlign: "center", fontWeight: 700, color: outOfStock ? "#c0392b" : lowStock ? "#e67e22" : "#333" }}>
                       {outOfStock ? <span style={{ fontSize: 10, fontWeight: 600 }}>OUT</span> : plant.quantity}
                     </td>
                     <td style={{ ...tdBase, textAlign: "center", color: "#888" }}>{plant.packSize || 1}</td>
-                    <td style={{ ...tdBase, color: "#888", fontSize: 12, whiteSpace: "normal", wordWrap: "break-word", lineHeight: 1.3, borderRight: "none" }}>{plant.comments || "—"}</td>
+                    <td style={{ ...tdBase, fontSize: 12, whiteSpace: "normal", wordWrap: "break-word", lineHeight: 1.3, borderRight: "none" }}>{plant.comments || "—"}</td>
                   </tr>
                 );
               })}
@@ -927,7 +934,9 @@ function ShopView({ plants, cart, updateCartQty, removeFromCart, submitOrder, sh
             </div>
           </div>
         )}
-      </div>
+        </div> {/* end paddingBottom wrapper */}
+        </div> {/* end main area */}
+      </div> {/* end sidebar+main flex row */}
 
       {checkoutOpen && <CheckoutModal cart={cart} cartTotal={cartTotal} onSubmit={handleCheckout} onClose={() => setCheckoutOpen(false)} />}
       {orderConfirm && <OrderConfirmModal order={orderConfirm} onClose={() => setOrderConfirm(null)} />}
